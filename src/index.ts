@@ -10,6 +10,7 @@ import type { TDDConfig, TestSignal } from "./types.js";
 
 const STATUS_KEY = "tdd-gate";
 const OUTPUT_TYPE = "tdd-gate-output";
+const OUTPUT_WIDGET_KEY = "tdd-gate-command-output";
 
 function createInitialMachine(): PhaseStateMachine {
   return new PhaseStateMachine({
@@ -40,7 +41,7 @@ export default function activate(pi: ExtensionAPI): void {
       machine.restore(saved);
     } else {
       machine.restore({
-        phase: nextConfig.startInPlanMode ? "PLAN" : "RED",
+        phase: nextConfig.startInSpecMode ? "SPEC" : "RED",
         diffs: [],
         lastTestOutput: null,
         lastTestFailed: null,
@@ -54,7 +55,18 @@ export default function activate(pi: ExtensionAPI): void {
     ctx.ui.setStatus(STATUS_KEY, machine.statusText());
   }
 
-  function publish(text: string): void {
+  function publish(ctx: ExtensionContext | ExtensionCommandContext, text: string): void {
+    if (ctx.hasUI) {
+      const lines = text.split("\n");
+      if (lines.length > 1) {
+        ctx.ui.setWidget(OUTPUT_WIDGET_KEY, lines);
+      } else {
+        ctx.ui.setWidget(OUTPUT_WIDGET_KEY, undefined);
+        ctx.ui.notify(text, "info");
+      }
+      return;
+    }
+
     pi.sendMessage(
       {
         customType: OUTPUT_TYPE,
@@ -114,14 +126,14 @@ export default function activate(pi: ExtensionAPI): void {
     description: "Control the TDD phase gate",
     getArgumentCompletions: (prefix) => {
       const commands = [
+        "spec",
         "status",
-        "plan",
         "red",
         "green",
         "refactor",
-        "plan-set",
-        "plan-show",
-        "plan-done",
+        "spec-set",
+        "spec-show",
+        "spec-done",
         "off",
         "on",
         "history",
@@ -131,7 +143,7 @@ export default function activate(pi: ExtensionAPI): void {
     },
     handler: async (args, ctx: ExtensionCommandContext) => {
       const nextConfig = refreshConfig(ctx);
-      await handleTddCommand(args, machine, ctx, publish);
+      await handleTddCommand(args, machine, ctx, (text) => publish(ctx, text));
       if (nextConfig.persistPhase) {
         persistState(pi, machine);
       }

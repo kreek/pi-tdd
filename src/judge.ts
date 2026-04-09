@@ -4,10 +4,10 @@ import type { JudgeVerdict, PhaseState, TDDConfig, TDDPhase, TransitionVerdict }
 
 function phaseRules(phase: TDDPhase): string {
   switch (phase) {
-    case "PLAN":
-      return `Phase: PLAN
-ALLOWED: Reading files, exploring the codebase, outlining tests.
-BLOCKED: Writing or editing files, behavior-changing commands, implementation work.`;
+    case "SPEC":
+      return `Phase: SPEC
+ALLOWED: Reading files, exploring the codebase, clarifying the user's request, defining the user story and acceptance criteria, and translating them into testable specifications.
+BLOCKED: Writing or editing files, behavior-changing commands, implementation work, and generic implementation planning not tied to testable behavior.`;
     case "RED":
       return `Phase: RED
 ALLOWED: Writing or modifying tests, running tests to confirm failure, reading files.
@@ -57,8 +57,8 @@ function contextBlock(state: PhaseState, maxDiffs: number): string {
   const lines: string[] = [];
 
   if (state.plan.length > 0) {
-    lines.push(`Plan progress: ${state.planCompleted}/${state.plan.length}`);
-    lines.push(`Current plan item: ${state.plan[state.planCompleted] ?? "(completed)"}`);
+    lines.push(`Spec progress: ${state.planCompleted}/${state.plan.length}`);
+    lines.push(`Current spec item: ${state.plan[state.planCompleted] ?? "(completed)"}`);
   }
   if (state.lastTestOutput) {
     lines.push(`Last test output (truncated):\n${truncateFromEnd(state.lastTestOutput, 700)}`);
@@ -87,11 +87,12 @@ Proposed tool call:
 ${summarizeToolCall(event)}
 
 Guidance:
-- PLAN blocks file mutations and behavior-changing commands.
+- SPEC blocks file mutations and behavior-changing commands.
+- SPEC exists to translate the user's request into testable specifications that set up the rest of the TDD loop for success.
 - RED allows test work and test execution only.
 - GREEN allows only the minimum implementation to satisfy the failing test.
 - REFACTOR allows cleanup without behavior changes.
-- Test-running bash commands are allowed outside PLAN.
+- Test-running bash commands are allowed outside SPEC.
 - Never allow secrets or credentials to be written.
 
 Respond with JSON only:
@@ -106,7 +107,7 @@ Only legal next phase: ${expectedNextPhase}
 Cycle count: ${state.cycleCount}
 
 Transition rules:
-- PLAN -> RED only when planning is complete.
+- SPEC -> RED only when the user's request has been translated into a testable specification.
 - RED -> GREEN only after a test has been written and confirmed failing.
 - GREEN -> REFACTOR only after the failing test now passes.
 - REFACTOR -> RED only when refactoring is complete and behavior is still passing.
@@ -244,6 +245,7 @@ function parseTransitionVerdict(raw: string): TransitionVerdict {
   if (
     transition !== null &&
     transition !== "PLAN" &&
+    transition !== "SPEC" &&
     transition !== "RED" &&
     transition !== "GREEN" &&
     transition !== "REFACTOR"
@@ -252,7 +254,7 @@ function parseTransitionVerdict(raw: string): TransitionVerdict {
   }
 
   return {
-    transition: transition as TDDPhase | null,
+    transition: transition === "PLAN" ? "SPEC" : (transition as TDDPhase | null),
     reason: String((parsed as Record<string, unknown>).reason ?? ""),
   };
 }

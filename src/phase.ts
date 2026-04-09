@@ -3,6 +3,7 @@ import type { PersistedTddState, PhaseState, PhaseTransitionLog, TDDPhase } from
 const CYCLE_ORDER: TDDPhase[] = ["RED", "GREEN", "REFACTOR"];
 
 export class PhaseStateMachine {
+  // "plan" is the persisted historical field name for the SPEC checklist.
   private state: PhaseState;
   private history: PhaseTransitionLog[] = [];
 
@@ -87,7 +88,7 @@ export class PhaseStateMachine {
   }
 
   nextPhase(): TDDPhase {
-    if (this.state.phase === "PLAN") {
+    if (this.state.phase === "SPEC") {
       return "RED";
     }
 
@@ -154,8 +155,8 @@ export class PhaseStateMachine {
 
   allowedActions(): string {
     switch (this.state.phase) {
-      case "PLAN":
-        return "Read code. Explore the codebase. Outline test cases. Discuss the plan.";
+      case "SPEC":
+        return "Read code. Clarify the user's request. Translate it into user-visible behavior, acceptance criteria, and testable specifications. Discuss the spec.";
       case "RED":
         return "Write or modify tests. Run tests to confirm failure. Read any file.";
       case "GREEN":
@@ -167,8 +168,8 @@ export class PhaseStateMachine {
 
   prohibitedActions(): string {
     switch (this.state.phase) {
-      case "PLAN":
-        return "Write or modify files. Execute state-changing commands. Only planning is allowed.";
+      case "SPEC":
+        return "Write or modify files. Execute state-changing commands. Implementation planning and code changes are out of scope. Only request-to-spec translation work is allowed.";
       case "RED":
         return "Write production implementation. Modify non-test source files unless explicitly overridden.";
       case "GREEN":
@@ -183,14 +184,14 @@ export class PhaseStateMachine {
       return "[TDD: OFF]";
     }
 
-    if (this.state.phase === "PLAN") {
-      return `[TDD: PLAN] | Tests planned: ${this.state.plan.length}`;
+    if (this.state.phase === "SPEC") {
+      return `[TDD: SPEC] | Spec items: ${this.state.plan.length}`;
     }
 
     const testStatus =
       this.state.lastTestFailed === null ? "UNKNOWN" : this.state.lastTestFailed ? "FAILING" : "PASSING";
     const planProgress =
-      this.state.plan.length > 0 ? ` | Plan: ${this.state.planCompleted}/${this.state.plan.length}` : "";
+      this.state.plan.length > 0 ? ` | Spec: ${this.state.planCompleted}/${this.state.plan.length}` : "";
     return `[TDD: ${this.state.phase}] | Tests: ${testStatus} | Cycle: ${this.state.cycleCount}${planProgress}`;
   }
 }

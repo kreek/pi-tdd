@@ -14,10 +14,13 @@ const DEFAULTS: Omit<TDDConfig, "guidelines"> = {
   temperature: 0,
   maxDiffsInContext: 5,
   persistPhase: true,
-  startInPlanMode: false,
+  startInSpecMode: false,
 };
 
-type UserConfig = Partial<Omit<TDDConfig, "guidelines">> & { guidelines?: Partial<GuidelinesConfig> };
+type UserConfig = Partial<Omit<TDDConfig, "guidelines">> & {
+  startInPlanMode?: boolean;
+  guidelines?: Partial<GuidelinesConfig> & { plan?: string | null };
+};
 
 interface SettingsFileShape {
   tddGate?: UserConfig;
@@ -60,11 +63,17 @@ export function loadConfig(cwd: string): TDDConfig {
 
   const user = mergeConfigLayers(globalSettings?.tddGate, projectSettings?.tddGate);
   const guidelines = resolveGuidelines(user.guidelines);
-  const { guidelines: _ignored, ...rest } = user;
+  const startInSpecMode = user.startInSpecMode ?? user.startInPlanMode;
+  const {
+    guidelines: _ignoredGuidelines,
+    startInPlanMode: _ignoredStartInPlanMode,
+    ...rest
+  } = user;
 
   return {
     ...DEFAULTS,
     ...(rest as Partial<TDDConfig>),
+    startInSpecMode: startInSpecMode ?? DEFAULTS.startInSpecMode,
     guidelines,
   };
 }

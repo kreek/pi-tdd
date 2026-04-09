@@ -2,30 +2,13 @@ import { isBashToolResult, type ExtensionContext, type ToolResultEvent } from "@
 import type { TDDConfig, TestSignal } from "./types.js";
 import type { PhaseStateMachine } from "./phase.js";
 import { judgeTransition } from "./judge.js";
+import { splitCommandArgs } from "./commands.js";
 
-const TEST_COMMAND_PATTERNS = [
-  /\bpytest\b/,
-  /\bcargo\s+test\b/,
-  /\bnpm\s+test\b/,
-  /\byarn\s+test\b/,
-  /\bpnpm\s+test\b/,
-  /\bgo\s+test\b/,
-  /\bvitest\b/,
-  /\brspec\b/,
-  /\bdeno\s+test\b/,
-  /\bmake\s+test\b/,
-  /\bzig\s+test\b/,
-  /\bjest\b/,
-  /\bmocha\b/,
-  /\bnpx\s+jest\b/,
-  /\bnpx\s+vitest\b/,
-  /\bblc\s+check\b/,
-  /\bblc\s+test\b/,
-  /\bscripts\/test\b/,
-];
+const BARE_TEST_BINARIES = new Set(["pytest", "vitest", "rspec", "jest", "mocha"]);
+const SHELL_WRAPPERS = new Set(["bash", "sh", "zsh"]);
 
 export function isTestCommand(command: string): boolean {
-  return TEST_COMMAND_PATTERNS.some((pattern) => pattern.test(command));
+  return splitCommandClauses(command).some(isTestCommandClause);
 }
 
 export function extractTestSignal(event: ToolResultEvent): TestSignal | null {
@@ -64,7 +47,7 @@ export async function evaluateTransition(
     machine.recordTestResult(signal.output, signal.failed);
   }
 
-  if (machine.phase === "PLAN") {
+  if (machine.phase === "SPEC") {
     return;
   }
 
@@ -80,13 +63,17 @@ export async function evaluateTransition(
     return;
   }
 
-  let verdict;
-  try {
-    verdict = await judgeTransition(ctx, machine.getSnapshot(), config, expectedNextPhase);
-  } catch {
-    verdict = fallbackTransition(machine, signals, expectedNextPhase);
+  let verdict = fallbackTransition(machine, signals, expectedNextPhase);
+
+  if (!verdict.transition) {
+    try {
+      verdict = await judgeTransition(ctx, machine.getSnapshot(), config, expectedNextPhase);
+    } catch {
+      return;
+    }
   }
 
+  // Safety belt: only allow the immediate legal phase transition.
   if (verdict.transition !== expectedNextPhase) {
     return;
   }
@@ -102,7 +89,7 @@ export async function evaluateTransition(
   ctx.ui.setStatus("tdd-gate", machine.statusText());
 }
 
-function fallbackTransition(
+export function fallbackTransition(
   machine: PhaseStateMachine,
   signals: TestSignal[],
   expectedNextPhase: ReturnType<PhaseStateMachine["nextPhase"]>
@@ -125,4 +112,138 @@ function fallbackTransition(
     transition: null,
     reason: "No deterministic transition signal was found.",
   };
+}
+
+function isTestCommandClause(clause: string): boolean {
+  const tokens = splitCommandArgs(clause);
+  if (tokens.length === 0) {
+    return false;
+  }
+
+  const [firstRaw, secondRaw, thirdRaw] = tokens;
+  const first = commandName(firstRaw);
+  const second = secondRaw?.toLowerCase();
+  const third = thirdRaw?.toLowerCase();
+
+  if (BARE_TEST_BINARIES.has(first)) {
+    return true;
+  }
+
+  if (first === "npx" && secondRaw) {
+    return BARE_TEST_BINARIES.has(commandName(secondRaw));
+  }
+
+  if (first === "cargo" || first === "go" || first === "deno" || first === "zig") {
+    return second === "test";
+  }
+
+  if (first === "make") {
+    return second === "test" || second === "check";
+  }
+
+  if (first === "blc") {
+    return second === "check" || second === "test";
+  }
+
+  if (first === "npm" || first === "pnpm" || first === "yarn" || first === "bun") {
+    if (second === "test") {
+      return true;
+    }
+    if (second === "run" && third?.startsWith("test")) {
+      return true;
+    }
+  }
+
+  if (SHELL_WRAPPERS.has(first) && secondRaw) {
+    return looksLikeTestScript(secondRaw);
+  }
+
+  return looksLikeTestScript(firstRaw);
+}
+
+function looksLikeTestScript(token: string): boolean {
+  const normalized = token.toLowerCase();
+  if (normalized === "test") {
+    return true;
+  }
+
+  const trimmed = normalized.startsWith("./") ? normalized.slice(2) : normalized;
+  const parts = trimmed.split("/");
+  const last = parts[parts.length - 1] ?? "";
+
+  return (
+    trimmed.startsWith("scripts/test") ||
+    trimmed.includes("/test") ||
+    last === "test" ||
+    last.startsWith("test.")
+  );
+}
+
+function commandName(token: string): string {
+  const normalized = token.toLowerCase();
+  const parts = normalized.split("/");
+  return parts[parts.length - 1] ?? normalized;
+}
+
+function splitCommandClauses(command: string): string[] {
+  const clauses: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+  let escape = false;
+
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
+    const next = command[i + 1];
+
+    if (escape) {
+      current += ch;
+      escape = false;
+      continue;
+    }
+
+    if (ch === "\\") {
+      current += ch;
+      escape = true;
+      continue;
+    }
+
+    if (quote) {
+      current += ch;
+      if (ch === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      current += ch;
+      quote = ch;
+      continue;
+    }
+
+    if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
+      pushClause(clauses, current);
+      current = "";
+      i++;
+      continue;
+    }
+
+    if (ch === ";" || ch === "|") {
+      pushClause(clauses, current);
+      current = "";
+      continue;
+    }
+
+    current += ch;
+  }
+
+  pushClause(clauses, current);
+  return clauses;
+}
+
+function pushClause(clauses: string[], clause: string): void {
+  const trimmed = clause.trim();
+  if (trimmed) {
+    clauses.push(trimmed);
+  }
 }

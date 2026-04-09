@@ -28,12 +28,12 @@ export async function gateToolCalls(
       continue;
     }
 
-    if (isToolCallEventType("bash", event) && machine.phase !== "PLAN" && isTestCommand(event.input.command)) {
+    if (isToolCallEventType("bash", event) && machine.phase !== "SPEC" && isTestCommand(event.input.command)) {
       machine.addDiff(summarizeDiff(event), config.maxDiffsInContext);
       continue;
     }
 
-    if (machine.phase === "PLAN" && BUILTIN_MUTATING_TOOLS.has(event.toolName)) {
+    if (machine.phase === "SPEC" && BUILTIN_MUTATING_TOOLS.has(event.toolName)) {
       results[i] = await handlePlanBlock(event, ctx);
       if (!results[i]) {
         machine.addDiff(summarizeDiff(event), config.maxDiffsInContext);
@@ -125,20 +125,20 @@ async function handlePlanBlock(
   ctx: ExtensionContext
 ): Promise<ToolCallEventResult | undefined> {
   if (ctx.hasUI) {
-    ctx.ui.notify(`Blocked ${event.toolName} during PLAN. Finish the test plan first.`, "warning");
+    ctx.ui.notify(`Blocked ${event.toolName} during SPEC. Finish the feature spec first.`, "warning");
   }
 
   const override = await confirmFailureFallback(
     ctx,
-    "PLAN phase is read-only",
-    `PLAN blocks ${event.toolName}. Override and allow it anyway?`
+    "SPEC phase is read-only",
+    `SPEC blocks ${event.toolName}. Override and allow it anyway?`
   );
 
   return override
     ? undefined
     : {
         block: true,
-        reason: "PLAN phase blocks file changes and bash execution until the test plan is ready.",
+        reason: "SPEC phase blocks file changes and bash execution until the test specification is ready.",
       };
 }
 

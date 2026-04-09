@@ -5,7 +5,9 @@ import type { GuidelinesConfig, TDDPhase } from "./types.js";
 // ---------------------------------------------------------------------------
 
 export const DEFAULTS: Readonly<GuidelinesConfig> = {
-  plan: `Planning guidelines:
+  spec: `Specification guidelines:
+- Treat SPEC as an optional preflight step for turning the user's request into testable behavior.
+- Translate the request into a user story, concrete acceptance criteria, and the tests that will prove them.
 - Reason then code: show logic before implementing complex solutions.
 - Default to established, proven technologies unless newer approaches are requested.
 - Contract-first: define interfaces and contracts before implementation when building integrations.
@@ -53,11 +55,17 @@ export const DEFAULTS: Readonly<GuidelinesConfig> = {
 // ---------------------------------------------------------------------------
 
 export function resolveGuidelines(
-  user: Partial<GuidelinesConfig> | undefined
+  user: (Partial<GuidelinesConfig> & { plan?: string | null }) | undefined
 ): GuidelinesConfig {
   if (!user) return { ...DEFAULTS };
+  const spec =
+    user.spec !== undefined
+      ? user.spec
+      : user.plan !== undefined
+        ? user.plan
+        : DEFAULTS.spec;
   return {
-    plan: user.plan === undefined ? DEFAULTS.plan : user.plan,
+    spec,
     red: user.red === undefined ? DEFAULTS.red : user.red,
     green: user.green === undefined ? DEFAULTS.green : user.green,
     refactor: user.refactor === undefined ? DEFAULTS.refactor : user.refactor,

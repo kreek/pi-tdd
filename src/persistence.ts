@@ -24,12 +24,13 @@ export function restoreState(ctx: ExtensionContext): PersistedTddState | null {
     }
 
     const state = entry.data;
-    if (!isValidPhase(state.phase)) {
+    const phase = normalizePhase(state.phase);
+    if (!phase) {
       continue;
     }
 
     return {
-      phase: state.phase,
+      phase,
       diffs: Array.isArray(state.diffs) ? state.diffs : [],
       lastTestOutput: typeof state.lastTestOutput === "string" ? state.lastTestOutput : null,
       lastTestFailed: typeof state.lastTestFailed === "boolean" ? state.lastTestFailed : null,
@@ -43,6 +44,8 @@ export function restoreState(ctx: ExtensionContext): PersistedTddState | null {
   return null;
 }
 
-function isValidPhase(phase: unknown): phase is TDDPhase {
-  return phase === "PLAN" || phase === "RED" || phase === "GREEN" || phase === "REFACTOR";
+function normalizePhase(phase: unknown): TDDPhase | null {
+  if (phase === "PLAN" || phase === "SPEC") return "SPEC";
+  if (phase === "RED" || phase === "GREEN" || phase === "REFACTOR") return phase;
+  return null;
 }

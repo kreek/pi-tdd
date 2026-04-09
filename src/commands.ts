@@ -2,7 +2,7 @@ import type { ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type { TDDPhase } from "./types.js";
 import type { PhaseStateMachine } from "./phase.js";
 
-const VALID_PHASES: TDDPhase[] = ["PLAN", "RED", "GREEN", "REFACTOR"];
+const VALID_PHASES: TDDPhase[] = ["SPEC", "RED", "GREEN", "REFACTOR"];
 
 type Publish = (message: string) => void;
 
@@ -20,11 +20,13 @@ export async function handleTddCommand(
       publish(formatStatus(machine));
       return;
 
+    case "spec":
     case "plan":
     case "red":
     case "green":
     case "refactor": {
-      const target = sub.toUpperCase() as TDDPhase;
+      const normalized = sub === "plan" ? "SPEC" : sub.toUpperCase();
+      const target = normalized as TDDPhase;
       if (!VALID_PHASES.includes(target)) {
         publish(`Unknown phase: ${sub}. Valid phases: ${VALID_PHASES.join(", ")}.`);
         return;
@@ -34,7 +36,7 @@ export async function handleTddCommand(
         machine.completePlanItem();
       }
 
-      const ok = machine.transitionTo(target, "User forced via /tdd command", true);
+      const ok = machine.transitionTo(target, "User forced via /tdd command", target !== machine.nextPhase());
       if (ok) {
         ctx.ui.setStatus("tdd-gate", machine.statusText());
         ctx.ui.notify(`TDD phase -> ${target}`, "info");
@@ -45,30 +47,33 @@ export async function handleTddCommand(
       return;
     }
 
+    case "spec-set":
     case "plan-set": {
       const items = args.slice(1).filter(Boolean);
       if (items.length === 0) {
-        publish('Usage: /tdd plan-set "Test case 1" "Test case 2" ...');
+        publish('Usage: /tdd spec-set "Criterion 1" "Criterion 2" ...');
         return;
       }
 
       machine.setPlan(items);
-      ctx.ui.notify(`Test plan set with ${items.length} item(s)`, "info");
-      publish(formatPlan(machine));
+      ctx.ui.notify(`Feature spec set with ${items.length} item(s)`, "info");
+      publish(formatSpec(machine));
       return;
     }
 
+    case "spec-show":
     case "plan-show":
-      publish(formatPlan(machine));
+      publish(formatSpec(machine));
       return;
 
+    case "spec-done":
     case "plan-done": {
       machine.completePlanItem();
       const next = machine.currentPlanItem();
       publish(
         next
-          ? `Plan item completed. Next: ${next} (${machine.planCompleted}/${machine.plan.length})`
-          : `All ${machine.plan.length} plan items completed.`
+          ? `Spec item completed. Next: ${next} (${machine.planCompleted}/${machine.plan.length})`
+          : `All ${machine.plan.length} spec items completed.`
       );
       return;
     }
@@ -109,19 +114,19 @@ function formatStatus(machine: PhaseStateMachine): string {
   ];
 
   if (snap.plan.length > 0) {
-    lines.push(`Plan:       ${snap.planCompleted}/${snap.plan.length} completed`);
+    lines.push(`Spec:       ${snap.planCompleted}/${snap.plan.length} completed`);
   }
 
   return lines.join("\n");
 }
 
-function formatPlan(machine: PhaseStateMachine): string {
+function formatSpec(machine: PhaseStateMachine): string {
   const snap = machine.getSnapshot();
   if (snap.plan.length === 0) {
-    return 'No test plan set. Use /tdd plan-set "Test 1" "Test 2" ... to create one.';
+    return 'No feature spec set. Use /tdd spec-set "Criterion 1" "Criterion 2" ... to create one.';
   }
 
-  const lines = [`Test plan (${snap.planCompleted}/${snap.plan.length} completed):`, ""];
+  const lines = [`Feature spec (${snap.planCompleted}/${snap.plan.length} completed):`, ""];
   for (let i = 0; i < snap.plan.length; i++) {
     const marker = i < snap.planCompleted ? "[x]" : i === snap.planCompleted ? "[>]" : "[ ]";
     lines.push(`${marker} ${i + 1}. ${snap.plan[i]}`);
@@ -144,7 +149,7 @@ function formatHistory(machine: PhaseStateMachine): string {
   return lines.join("\n");
 }
 
-function splitCommandArgs(raw: string): string[] {
+export function splitCommandArgs(raw: string): string[] {
   const args: string[] = [];
   let current = "";
   let quote: '"' | "'" | null = null;
@@ -197,13 +202,13 @@ function splitCommandArgs(raw: string): string[] {
 const HELP_TEXT = `Usage: /tdd [subcommand]
 
 /tdd status
-/tdd plan
+/tdd spec
 /tdd red
 /tdd green
 /tdd refactor
-/tdd plan-set "Test 1" "Test 2"
-/tdd plan-show
-/tdd plan-done
+/tdd spec-set "Criterion 1" "Criterion 2"
+/tdd spec-show
+/tdd spec-done
 /tdd off
 /tdd on
 /tdd history`;

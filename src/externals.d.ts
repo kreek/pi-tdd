@@ -1,3 +1,4 @@
+// Keep in sync with the installed @mariozechner/pi-ai and @mariozechner/pi-coding-agent versions.
 declare module "@mariozechner/pi-ai" {
   export type Provider = string;
   export type Api = string;
@@ -142,6 +143,7 @@ declare module "@mariozechner/pi-coding-agent" {
     input(title: string, placeholder?: string, opts?: ExtensionUIDialogOptions): Promise<string | undefined>;
     notify(message: string, type?: "info" | "warning" | "error"): void;
     setStatus(key: string, text: string | undefined): void;
+    setWidget(key: string, content: string[] | undefined, options?: unknown): void;
     setEditorText(text: string): void;
     custom<T>(
       factory: (

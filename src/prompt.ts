@@ -17,13 +17,14 @@ export function buildSystemPrompt(machine: PhaseStateMachine, config: TDDConfig)
   ];
 
   switch (phase) {
-    case "PLAN":
-      lines.push("- Read the codebase and outline the tests before changing files.");
-      lines.push("- Present the plan as a numbered list of test cases.");
+    case "SPEC":
+      lines.push("- Use SPEC as an optional preflight step when needed to set the user's request up for success.");
+      lines.push("- Translate the user's request into a clear user story, observable acceptance criteria, and concrete testable specifications before changing files.");
+      lines.push("- Present the spec as a numbered list of test cases or acceptance checks that prove the requested behavior.");
       lines.push("- Do not write code until the user or command switches to RED.");
       if (machine.plan.length > 0) {
         lines.push("");
-        lines.push("Current test plan:");
+        lines.push("Current feature spec:");
         for (let i = 0; i < machine.plan.length; i++) {
           const marker = i < machine.planCompleted ? "[x]" : i === machine.planCompleted ? "[>]" : "[ ]";
           lines.push(`${marker} ${i + 1}. ${machine.plan[i]}`);
@@ -50,11 +51,11 @@ export function buildSystemPrompt(machine: PhaseStateMachine, config: TDDConfig)
     lines.push(guidelines);
   }
 
-  if (phase !== "PLAN" && machine.plan.length > 0) {
+  if (phase !== "SPEC" && machine.plan.length > 0) {
     const current = machine.currentPlanItem();
     if (current) {
       lines.push("");
-      lines.push(`Current plan item (${machine.planCompleted + 1}/${machine.plan.length}): ${current}`);
+      lines.push(`Current spec item (${machine.planCompleted + 1}/${machine.plan.length}): ${current}`);
     }
   }
 
@@ -68,7 +69,7 @@ export function buildSystemPrompt(machine: PhaseStateMachine, config: TDDConfig)
     lines.push(`Last test result: ${machine.lastTestFailed ? "FAILING" : "PASSING"}`);
   }
 
-  if (phase !== "PLAN") {
+  if (phase !== "SPEC") {
     lines.push(`Cycle: ${machine.cycleCount}`);
   }
 

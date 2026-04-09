@@ -1,4 +1,4 @@
-export type TDDPhase = "PLAN" | "RED" | "GREEN" | "REFACTOR";
+export type TDDPhase = "SPEC" | "RED" | "GREEN" | "REFACTOR";
 
 export interface PhaseState {
   phase: TDDPhase;
@@ -20,7 +20,7 @@ export interface PhaseTransitionLog {
 }
 
 export interface GuidelinesConfig {
-  plan: string | null;
+  spec: string | null;
   red: string | null;
   green: string | null;
   refactor: string | null;
@@ -38,7 +38,7 @@ export interface TDDConfig {
   temperature: number;
   maxDiffsInContext: number;
   persistPhase: boolean;
-  startInPlanMode: boolean;
+  startInSpecMode: boolean;
   guidelines: GuidelinesConfig;
 }
 
