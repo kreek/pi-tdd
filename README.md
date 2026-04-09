@@ -19,7 +19,7 @@ pi
 
 You can authenticate either with `/login` inside Pi or with a provider API key in your shell environment.
 
-## TDD, in plain English
+## TDD
 
 TDD means:
 
