@@ -4,6 +4,85 @@
 
 The extension injects phase-specific instructions into the agent prompt, judges tool calls against the current phase, watches test runs, and persists TDD state across the session.
 
+In a hurry? Jump to [Quick Start](#quick-start).
+
+## Quick Start
+
+### 1. Install Pi
+
+```bash
+npm install -g @mariozechner/pi-coding-agent
+```
+
+Then authenticate:
+
+```bash
+pi
+```
+
+Inside Pi, run `/login`, or set your provider API key before launching Pi.
+
+### 2. Install `pi-tdd`
+
+Install into the current project:
+
+```bash
+pi install -l git:git@github.com:manifestdocs/pi-tdd.git
+```
+
+That writes to the project's `.pi/settings.json`.
+
+Install globally for your user instead:
+
+```bash
+pi install git:git@github.com:manifestdocs/pi-tdd.git
+```
+
+That writes to `~/.pi/agent/settings.json`.
+
+You can also install the current checkout during local development:
+
+```bash
+npm run pi:install
+```
+
+Or install the current checkout globally:
+
+```bash
+npm run pi:install:global
+```
+
+If Pi is already running, execute:
+
+```text
+/reload
+```
+
+### 3. Start Using The Gate
+
+Open Pi in your project and try:
+
+```text
+/tdd status
+/tdd spec
+/tdd spec-set "rejects checkout when the cart is empty" "shows a clear message explaining that at least one item is required" "allows checkout once the cart contains an item"
+/tdd red
+```
+
+Then prompt the agent normally, for example:
+
+```text
+User story: as a shopper, I should not be able to check out with an empty cart.
+Acceptance criteria:
+1. Checkout fails when the cart has no items.
+2. The user sees a clear validation message.
+3. Checkout succeeds once at least one item is present.
+
+Write the first failing test only. Do not implement the fix yet.
+```
+
+After the failing test is confirmed, let the agent make the minimal implementation change. Once the test passes, the extension can move the session into `REFACTOR`.
+
 ## Pi
 
 Pi is a terminal coding agent. You open it in a project, talk to it in natural language, and it can read files, edit code, and run shell commands on your behalf.
@@ -94,63 +173,6 @@ Important behavior details:
 - In the default config, `REFACTOR -> RED` is user-controlled, so you explicitly start the next cycle.
 - Read-only exploration is allowed in all phases by default.
 - The intended use of `SPEC` is to translate the user's request into a feature spec with concrete, testable acceptance checks.
-
-## Quick Start
-
-### 1. Install Pi
-
-```bash
-npm install -g @mariozechner/pi-coding-agent
-```
-
-Then authenticate:
-
-```bash
-pi
-```
-
-Inside Pi, run `/login`, or set your provider API key before launching Pi.
-
-### 2. Install `pi-tdd` Into a Project
-
-From the project where you want TDD gating:
-
-```bash
-pi install -l git:git@github.com:manifestdocs/pi-tdd.git
-```
-
-`-l` writes the package to the project's `.pi/settings.json`, so the whole repo can share the same setup.
-
-If Pi is already running, execute:
-
-```text
-/reload
-```
-
-### 3. Start Using The Gate
-
-Open Pi in your project and try:
-
-```text
-/tdd status
-/tdd spec
-/tdd spec-set "rejects checkout when the cart is empty" "shows a clear message explaining that at least one item is required" "allows checkout once the cart contains an item"
-/tdd red
-```
-
-Then prompt the agent normally, for example:
-
-```text
-User story: as a shopper, I should not be able to check out with an empty cart.
-Acceptance criteria:
-1. Checkout fails when the cart has no items.
-2. The user sees a clear validation message.
-3. Checkout succeeds once at least one item is present.
-
-Write the first failing test only. Do not implement the fix yet.
-```
-
-After the failing test is confirmed, let the agent make the minimal implementation change. Once the test passes, the extension can move the session into `REFACTOR`.
 
 ## `/tdd` Commands
 
