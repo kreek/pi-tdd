@@ -97,6 +97,8 @@ Test-driven development is a workflow:
 4. Refactor without changing behavior.
 5. Repeat.
 
+Kent Beck's 2023 "Canon TDD" clarification added a step that many practitioners skip: **start with a list of test scenarios** you want to cover, then convert them one at a time into concrete tests. This test-list phase is what pi-tdd calls SPEC, and it turns out to be the most important step when an AI agent is writing the code -- it is the specification document that constrains the agent toward the right behavior.
+
 The test does not have to be a unit test. Use the cheapest test that can prove the behavior. For isolated domain logic, that is often a unit test. For boundaries -- persistence, HTTP contracts, CLI wiring, serialization -- the honest first test is often an integration test.
 
 Before that loop starts, you need clarity on what you are building:
@@ -109,7 +111,9 @@ Without that grounding, you can still follow strict TDD and get very little valu
 
 ## Why this matters for coding agents
 
-Coding agents are fast, but they tend to:
+Empirical evidence from 2024-2026 shows that providing pre-written tests to LLM agents improves code generation accuracy by 12-46 percentage points across multiple benchmarks and models. The TDFlow paper (2025) found that agents given human-written tests achieved 94.3% resolution on SWE-bench Verified, compared to 69.8% when generating their own tests. Meanwhile, SWE-bench+ discovered that nearly half of "resolved" issues were actually incorrect -- patches passed weak tests but failed stronger ones.
+
+The mechanism is straightforward: tests convert ambiguous natural language into executable specifications. Without them, coding agents tend to:
 
 - Implement before specifying behavior.
 - Change too much at once.
@@ -142,17 +146,23 @@ SPEC is optional. When acceptance criteria are already clear, engage directly in
 
 Write a failing test for one acceptance criterion. Run it to confirm it fails for the expected reason.
 
+The first failing proving test for the active spec item becomes the cycle's proof target. `pi-tdd` tracks that target so GREEN and postflight stay anchored to the same behavior.
+
 The phase auto-advances to GREEN when the extension detects a failing test signal.
 
 ### GREEN
 
 Write the smallest correct implementation that makes the failing test pass. Stay scoped to the current test -- save cleanup for REFACTOR.
 
+GREEN is tied to the active proof target, not just any passing test output. The goal is to turn the checkpointed proof from red to green for the current spec item.
+
 The phase auto-advances to REFACTOR when the extension detects a passing test signal.
 
 ### REFACTOR
 
 Improve naming, readability, duplication, and structure without changing behavior. Run tests to confirm the refactor preserved the spec.
+
+If the proving test needs a material behavior change, start a fresh RED cycle instead of quietly redefining what success means inside REFACTOR.
 
 By default, REFACTOR does not auto-advance. Start the next cycle with `/tdd red` or let the agent call `tdd_engage(phase: "RED")`.
 
@@ -212,6 +222,8 @@ Runs when transitioning from SPEC into RED (or when engaging directly into RED w
 ### Postflight (proving)
 
 Runs on disengage (via `tdd_disengage`, `/tdd disengage`, or a `disengageOnTools` lifecycle hook). Validates that every spec item has a corresponding passing test and that the implementation matches what the spec asked for.
+
+Postflight also reviews the cycle's proof checkpoint: which spec item was being proven, what proof level was chosen, and whether the checkpointed proof files changed after RED established the target.
 
 **Surfaces gaps but does not block.** The agent and user can decide whether to re-engage and address the gaps.
 
