@@ -1,5 +1,6 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { TDDConfig, TDDPhase } from "./types.js";
+import { loadPrompt } from "./prompts.js";
 import { extractJSON, runReview } from "./reviews.js";
 
 /**
@@ -36,17 +37,7 @@ export function shouldRunPreflightOnRedEntry(
   return config.runPreflightOnRed && targetPhase === "RED" && (!enabled || currentPhase !== "RED");
 }
 
-const SYSTEM_PROMPT = `You are a TDD pre-flight reviewer. Your role is to check that a spec checklist is solid enough to drive a clean RED → GREEN → REFACTOR cycle BEFORE any code is written.
-
-A good spec item is:
-- Observable: the behavior can be witnessed by a test (input → output, side effect, error)
-- Testable: a failing test can be written for it before any implementation
-- Atomic: it asserts one thing, not several
-- Tied to user-visible behavior, not implementation details
-
-Reject items that are vague, untestable, mix multiple concerns, describe implementation rather than behavior, or duplicate other items. Reject the whole spec if it leaves obvious gaps in the user story.
-
-Respond with JSON only.`;
+const SYSTEM_PROMPT = loadPrompt("preflight-system");
 
 function buildUserPrompt(input: PreflightInput): string {
   const lines: string[] = [];

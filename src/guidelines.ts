@@ -1,53 +1,18 @@
 import type { GuidelinesConfig, TDDPhase } from "./types.js";
+import { loadPrompt } from "./prompts.js";
 
 // ---------------------------------------------------------------------------
-// Default guidelines — the built-in way of working, overridable via config
+// Default guidelines — the built-in way of working, overridable via config.
+// Prose lives in prompts/guidelines-*.md so it can be edited as markdown.
 // ---------------------------------------------------------------------------
 
 export const DEFAULTS: Readonly<GuidelinesConfig> = {
-  spec: `Specification guidelines:
-- Treat SPEC as an optional preflight step for turning the user's request into testable behavior.
-- Translate the request into a user story, concrete acceptance criteria, and the tests that will prove them.
-- Reason then code: show logic before implementing complex solutions.
-- Default to established, proven technologies unless newer approaches are requested.
-- Contract-first: define interfaces and contracts before implementation when building integrations.
-- Offer alternatives with trade-offs when appropriate.
-- Break down complex problems incrementally.
-- Ask about backwards compatibility rather than assuming — it can add unnecessary code.`,
-
-  red: `Testing guidelines:
-- Tests as specifications: structure tests to articulate WHAT the code should do, not HOW.
-- New developers should understand functionality by reading tests.
-- Use unit tests for domain logic, integration tests for API contracts and component interactions.
-- Start with the happy path test. Handle edge cases in subsequent RED cycles unless security concerns.`,
-
-  green: `Implementation guidelines:
-- Simplicity first: generate the most direct solution that meets the test.
-- Implement ONLY what's asked. No extra features, no future-proofing unless requested.
-- Write explicit, straightforward code. Avoid clever one-liners.
-- Favor pure functions, minimize side effects.
-- Functions: 25-30 lines max. Use early returns / guard clauses to reduce complexity.
-- Skip retry logic and other complexity unless explicitly needed.
-- Use built-in features when sufficient; add packages only when they save significant time.`,
-
-  refactor: `Refactoring guidelines:
-- Limit nesting: keep conditionals/loops under 3 layers.
-- Unix philosophy: each function does one thing well. Prefer composition.
-- Concrete over abstract: avoid abstraction unless it adds real value.
-- Feature-first organization: group by functionality, then by type.
-- Functions: 25-30 lines max. Break up longer functions.
-- No unnecessary complexity. Clean, focused code only.`,
-
-  universal: `General guidelines:
-- Show your work: explain key decisions and non-obvious choices.
-- Ask questions: clarify ambiguous requirements before proceeding.
-- Implement only what's asked: no extra features or future-proofing unless requested.`,
-
-  security: `Security guidelines:
-- Think security: consider implications even when not mentioned.
-- NEVER commit secrets, API keys, or credentials to version control.
-- Use environment variables, secret management systems, or secure vaults.
-- Validate inputs, especially user data, at system boundaries.`,
+  spec: loadPrompt("guidelines-spec"),
+  red: loadPrompt("guidelines-red"),
+  green: loadPrompt("guidelines-green"),
+  refactor: loadPrompt("guidelines-refactor"),
+  universal: loadPrompt("guidelines-universal"),
+  security: loadPrompt("guidelines-security"),
 };
 
 // ---------------------------------------------------------------------------

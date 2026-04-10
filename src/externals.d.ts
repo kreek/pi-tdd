@@ -445,3 +445,7 @@ declare module "node:path" {
 declare module "node:os" {
   export function homedir(): string;
 }
+
+declare module "node:url" {
+  export function fileURLToPath(url: URL | string): string;
+}
