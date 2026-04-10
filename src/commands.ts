@@ -243,6 +243,11 @@ function formatStatus(machine: PhaseStateMachine, configDisabled = false): strin
   if (snap.plan.length > 0) {
     lines.push(`Spec:       ${snap.planCompleted}/${snap.plan.length} completed`);
   }
+  if (snap.proofCheckpoint) {
+    const level = snap.proofCheckpoint.level === "unknown" ? "unknown" : snap.proofCheckpoint.level;
+    const item = snap.proofCheckpoint.itemIndex === null ? "no active item" : `item ${snap.proofCheckpoint.itemIndex}`;
+    lines.push(`Proof:      ${item} | ${level} | ${snap.proofCheckpoint.command}`);
+  }
 
   return lines.join("\n");
 }

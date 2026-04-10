@@ -45,6 +45,8 @@ export function buildPostflightUserPrompt(input: PostflightInput): string {
     "",
     ...testEvidenceLines(state),
     "",
+    ...proofCheckpointLines(state),
+    "",
     ...recentTestLines(state),
     "",
     ...diffLines(state),
@@ -203,6 +205,71 @@ function recentTestLines(state: PhaseState): string[] {
   ];
 }
 
+function proofCheckpointLines(state: PhaseState): string[] {
+  if (!state.proofCheckpoint) {
+    return ["Proof checkpoint for this cycle:", "(no proving checkpoint was captured in RED)"];
+  }
+
+  const checkpoint = state.proofCheckpoint;
+  const lines = [
+    "Proof checkpoint for this cycle:",
+    `Spec item: ${formatCheckpointItem(checkpoint.itemIndex, checkpoint.item)}`,
+    `Captured in RED by: FAIL | ${formatProofLevel(checkpoint.level)} | ${checkpoint.command}`,
+  ];
+
+  lines.push(...proofFileLines(checkpoint.testFiles));
+  lines.push(...proofDriftLines(state));
+  return lines;
+}
+
+function formatCheckpointItem(itemIndex: number | null, item: string | null): string {
+  if (itemIndex === null && !item) {
+    return "(no active checklist item)";
+  }
+  if (itemIndex === null) {
+    return item ?? "(no active checklist item)";
+  }
+  return item ? `${itemIndex}. ${item}` : `${itemIndex}. (item text unavailable)`;
+}
+
+function proofFileLines(testFiles: string[]): string[] {
+  if (testFiles.length === 0) {
+    return ["Checkpoint test files: (no edited test files were captured before the proving failure)"];
+  }
+
+  return [
+    "Checkpoint test files:",
+    ...testFiles.map((file, index) => `${index + 1}. ${file}`),
+  ];
+}
+
+function proofDriftLines(state: PhaseState): string[] {
+  const driftFiles = changedProofFilesAfterCheckpoint(state);
+  if (driftFiles.length === 0) {
+    return ["Proof drift after checkpoint: none detected"];
+  }
+
+  return [
+    "Proof files changed after checkpoint:",
+    ...driftFiles.map((file, index) => `${index + 1}. ${file}`),
+  ];
+}
+
+function changedProofFilesAfterCheckpoint(state: PhaseState): string[] {
+  const checkpoint = state.proofCheckpoint;
+  if (!checkpoint || checkpoint.testFiles.length === 0) {
+    return [];
+  }
+
+  const checkpointFiles = new Set(checkpoint.testFiles);
+  return uniqueStrings(
+    state.mutations
+      .slice(checkpoint.mutationCountAtCapture)
+      .map((mutation) => mutation.path)
+      .filter((path): path is string => !!path && checkpointFiles.has(path))
+  );
+}
+
 function diffLines(state: PhaseState): string[] {
   if (state.diffs.length === 0) {
     return [];
@@ -223,4 +290,8 @@ function postflightResponseLines(): string[] {
     `{"ok": true, "reason": "short explanation of what was delivered"}`,
     `{"ok": false, "reason": "short overall explanation", "gaps": [{"itemIndex": 1, "message": "..."}, {"itemIndex": null, "message": "general gap"}]}`,
   ];
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
 }

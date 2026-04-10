@@ -1,5 +1,12 @@
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@mariozechner/pi-coding-agent";
-import type { PhaseState, TDDPhase, TestProofLevel, TestSignal } from "./types.js";
+import type {
+  MutationRecord,
+  PhaseState,
+  ProofCheckpoint,
+  TDDPhase,
+  TestProofLevel,
+  TestSignal,
+} from "./types.js";
 import type { PhaseStateMachine } from "./phase.js";
 
 export const STATE_ENTRY_TYPE = "tdd_state";
@@ -32,9 +39,11 @@ export function restoreState(ctx: ExtensionContext): PhaseState | null {
     return {
       phase,
       diffs: Array.isArray(state.diffs) ? state.diffs : [],
+      mutations: normalizeMutations(state.mutations),
       lastTestOutput: typeof state.lastTestOutput === "string" ? state.lastTestOutput : null,
       lastTestFailed: typeof state.lastTestFailed === "boolean" ? state.lastTestFailed : null,
       recentTests: normalizeRecentTests(state.recentTests),
+      proofCheckpoint: normalizeProofCheckpoint(state.proofCheckpoint),
       cycleCount: typeof state.cycleCount === "number" ? state.cycleCount : 0,
       enabled: typeof state.enabled === "boolean" ? state.enabled : true,
       plan: Array.isArray(state.plan) ? state.plan : [],
@@ -85,4 +94,58 @@ function normalizeProofLevel(value: unknown): TestProofLevel {
   return value === "unit" || value === "integration" || value === "unknown"
     ? value
     : "unknown";
+}
+
+function normalizeMutations(value: unknown): MutationRecord[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry): MutationRecord | null => {
+      if (typeof entry !== "object" || entry === null) {
+        return null;
+      }
+
+      const mutation = entry as Record<string, unknown>;
+      const phase = normalizePhase(mutation.phase);
+      if (!phase || typeof mutation.toolName !== "string") {
+        return null;
+      }
+
+      return {
+        toolName: mutation.toolName,
+        phase,
+        path: typeof mutation.path === "string" ? mutation.path : undefined,
+        command: typeof mutation.command === "string" ? mutation.command : undefined,
+      };
+    })
+    .filter((entry): entry is MutationRecord => entry !== null);
+}
+
+function normalizeProofCheckpoint(value: unknown): ProofCheckpoint | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+
+  const checkpoint = value as Record<string, unknown>;
+  if (
+    typeof checkpoint.command !== "string" ||
+    typeof checkpoint.commandFamily !== "string" ||
+    typeof checkpoint.mutationCountAtCapture !== "number"
+  ) {
+    return null;
+  }
+
+  return {
+    itemIndex: typeof checkpoint.itemIndex === "number" ? checkpoint.itemIndex : null,
+    item: typeof checkpoint.item === "string" ? checkpoint.item : null,
+    command: checkpoint.command,
+    commandFamily: checkpoint.commandFamily,
+    level: normalizeProofLevel(checkpoint.level),
+    testFiles: Array.isArray(checkpoint.testFiles)
+      ? checkpoint.testFiles.filter((file): file is string => typeof file === "string")
+      : [],
+    mutationCountAtCapture: checkpoint.mutationCountAtCapture,
+  };
 }

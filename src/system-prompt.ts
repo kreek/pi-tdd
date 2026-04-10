@@ -18,6 +18,7 @@ export function buildSystemPrompt(machine: PhaseStateMachine, config: TDDConfig)
     ...phaseGuidance(machine),
     ...guidelineLines(machine, config),
     ...currentSpecItemLines(machine),
+    ...proofCheckpointLines(machine),
     ...statusLines(machine),
   ];
 
@@ -56,17 +57,20 @@ function phaseGuidance(machine: PhaseStateMachine): string[] {
       return [
         "- Write a failing test first.",
         "- Use the cheapest test that can prove the current behavior: unit for isolated logic, integration for boundaries and contracts.",
+        "- Let the first failing proving test for the current spec item define the proof target for this cycle.",
         "- Confirm the test fails before moving to implementation.",
       ];
     case "GREEN":
       return [
         "- Write the smallest correct implementation for the behavior the failing test asserts.",
         "- Satisfy the current failing test at its chosen proof level by exercising boundary behavior honestly when the test targets a seam.",
+        "- Drive the active proof target to green before chasing unrelated test output.",
         "- Stay scoped to the current failing test. Save cleanup and broader changes for REFACTOR.",
       ];
     case "REFACTOR":
       return [
         "- Preserve behavior while refining the code from this cycle: naming, readability, duplication, structure.",
+        "- If the proving test needs to change materially, start a fresh RED cycle for that behavior.",
       ];
   }
 }
@@ -103,6 +107,20 @@ function currentSpecItemLines(machine: PhaseStateMachine): string[] {
   return current
     ? ["", `Current spec item (${machine.planCompleted + 1}/${machine.plan.length}): ${current}`]
     : [];
+}
+
+function proofCheckpointLines(machine: PhaseStateMachine): string[] {
+  const checkpoint = machine.proofCheckpoint;
+  if (!checkpoint) {
+    return [];
+  }
+
+  const itemLabel = checkpoint.itemIndex === null ? "No active spec item" : `Spec item ${checkpoint.itemIndex}`;
+  const levelLabel = checkpoint.level === "unknown" ? "UNKNOWN" : checkpoint.level.toUpperCase();
+  return [
+    "",
+    `Active proof target: ${itemLabel} | ${levelLabel} | ${checkpoint.command}`,
+  ];
 }
 
 function statusLines(machine: PhaseStateMachine): string[] {

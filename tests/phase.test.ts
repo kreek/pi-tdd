@@ -18,9 +18,14 @@ describe("PhaseStateMachine", () => {
   });
 
   it("tracks recent test evidence and clears it when a new RED cycle starts", () => {
-    const machine = new PhaseStateMachine({ phase: "GREEN" });
+    const machine = new PhaseStateMachine({ phase: "GREEN", plan: ["persist settings"] });
 
+    machine.recordMutation("edit", "tests/settings.integration.test.ts");
     machine.recordTestResult("1 failed", true, "npm run test:unit", "unit");
+    machine.captureProofCheckpoint(
+      { command: "npm run test:unit", output: "1 failed", failed: true, level: "unit" },
+      "npm:test"
+    );
     machine.recordTestResult("1 passed", false, "npm run test:integration", "integration");
 
     expect(machine.getSnapshot().recentTests).toEqual([
@@ -37,6 +42,15 @@ describe("PhaseStateMachine", () => {
         level: "integration",
       },
     ]);
+    expect(machine.getSnapshot().proofCheckpoint).toEqual({
+      itemIndex: 1,
+      item: "persist settings",
+      command: "npm run test:unit",
+      commandFamily: "npm:test",
+      level: "unit",
+      testFiles: ["tests/settings.integration.test.ts"],
+      mutationCountAtCapture: 1,
+    });
 
     machine.transitionTo("REFACTOR", "green reached");
     machine.transitionTo("RED", "next slice");
@@ -44,5 +58,7 @@ describe("PhaseStateMachine", () => {
     expect(machine.lastTestFailed).toBeNull();
     expect(machine.lastTestOutput).toBeNull();
     expect(machine.getSnapshot().recentTests).toEqual([]);
+    expect(machine.getSnapshot().mutations).toEqual([]);
+    expect(machine.getSnapshot().proofCheckpoint).toBeNull();
   });
 });

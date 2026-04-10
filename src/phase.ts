@@ -1,7 +1,16 @@
-import type { PhaseState, PhaseTransitionLog, TDDPhase, TestProofLevel, TestSignal } from "./types.js";
+import type {
+  MutationRecord,
+  PhaseState,
+  PhaseTransitionLog,
+  ProofCheckpoint,
+  TDDPhase,
+  TestProofLevel,
+  TestSignal,
+} from "./types.js";
 
 const CYCLE_ORDER: TDDPhase[] = ["RED", "GREEN", "REFACTOR"];
 const MAX_RECENT_TESTS = 6;
+const MAX_RECENT_MUTATIONS = 24;
 
 export class PhaseStateMachine {
   // "plan" is the persisted historical field name for the SPEC checklist.
@@ -12,9 +21,11 @@ export class PhaseStateMachine {
     this.state = {
       phase: initial?.phase ?? "RED",
       diffs: initial?.diffs ?? [],
+      mutations: initial?.mutations ?? [],
       lastTestOutput: initial?.lastTestOutput ?? null,
       lastTestFailed: initial?.lastTestFailed ?? null,
       recentTests: initial?.recentTests ?? [],
+      proofCheckpoint: initial?.proofCheckpoint ?? null,
       cycleCount: initial?.cycleCount ?? 0,
       enabled: initial?.enabled ?? false,
       plan: initial?.plan ?? [],
@@ -54,6 +65,10 @@ export class PhaseStateMachine {
     return this.state.recentTests;
   }
 
+  get proofCheckpoint(): ProofCheckpoint | null {
+    return this.state.proofCheckpoint;
+  }
+
   get plan(): string[] {
     return this.state.plan;
   }
@@ -66,7 +81,9 @@ export class PhaseStateMachine {
     return {
       ...this.state,
       diffs: [...this.state.diffs],
+      mutations: this.state.mutations.map(cloneMutation),
       recentTests: [...this.state.recentTests],
+      proofCheckpoint: cloneProofCheckpoint(this.state.proofCheckpoint),
       plan: [...this.state.plan],
     };
   }
@@ -75,9 +92,11 @@ export class PhaseStateMachine {
     this.state = {
       phase: state.phase,
       diffs: [...state.diffs],
+      mutations: state.mutations.map(cloneMutation),
       lastTestOutput: state.lastTestOutput,
       lastTestFailed: state.lastTestFailed,
       recentTests: [...state.recentTests],
+      proofCheckpoint: cloneProofCheckpoint(state.proofCheckpoint),
       cycleCount: state.cycleCount,
       enabled: state.enabled,
       plan: [...state.plan],
@@ -120,9 +139,7 @@ export class PhaseStateMachine {
     this.state.phase = target;
     this.state.diffs = [];
     if (startingNewRedCycle) {
-      this.state.lastTestOutput = null;
-      this.state.lastTestFailed = null;
-      this.state.recentTests = [];
+      this.resetCycleEvidence();
     }
     return true;
   }
@@ -130,6 +147,7 @@ export class PhaseStateMachine {
   setPlan(items: string[]): void {
     this.state.plan = items;
     this.state.planCompleted = 0;
+    this.state.proofCheckpoint = null;
   }
 
   completePlanItem(): void {
@@ -153,6 +171,18 @@ export class PhaseStateMachine {
     }
   }
 
+  recordMutation(toolName: string, path?: string, command?: string): void {
+    this.state.mutations.push({
+      toolName,
+      phase: this.state.phase,
+      path,
+      command,
+    });
+    if (this.state.mutations.length > MAX_RECENT_MUTATIONS) {
+      this.state.mutations = this.state.mutations.slice(-MAX_RECENT_MUTATIONS);
+    }
+  }
+
   recordTestResult(
     output: string,
     failed: boolean,
@@ -165,6 +195,22 @@ export class PhaseStateMachine {
     if (this.state.recentTests.length > MAX_RECENT_TESTS) {
       this.state.recentTests = this.state.recentTests.slice(-MAX_RECENT_TESTS);
     }
+  }
+
+  captureProofCheckpoint(signal: TestSignal, commandFamily: string): void {
+    if (this.state.proofCheckpoint || !signal.failed) {
+      return;
+    }
+
+    this.state.proofCheckpoint = {
+      itemIndex: currentPlanItemIndex(this.state),
+      item: this.currentPlanItem(),
+      command: signal.command,
+      commandFamily,
+      level: signal.level,
+      testFiles: testMutationPaths(this.state.mutations),
+      mutationCountAtCapture: this.state.mutations.length,
+    };
   }
 
   allowedActions(): string {
@@ -217,4 +263,61 @@ export class PhaseStateMachine {
   bottomBarText(): string | undefined {
     return this.state.enabled ? this.statusText() : undefined;
   }
+
+  private resetCycleEvidence(): void {
+    this.state.lastTestOutput = null;
+    this.state.lastTestFailed = null;
+    this.state.recentTests = [];
+    this.state.mutations = [];
+    this.state.proofCheckpoint = null;
+  }
+}
+
+function currentPlanItemIndex(state: PhaseState): number | null {
+  return state.planCompleted < state.plan.length ? state.planCompleted + 1 : null;
+}
+
+function testMutationPaths(mutations: MutationRecord[]): string[] {
+  return uniqueStrings(
+    mutations
+      .map((mutation) => mutation.path)
+      .filter((path): path is string => !!path && isLikelyTestFile(path))
+  );
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function isLikelyTestFile(path: string): boolean {
+  const normalized = path.toLowerCase();
+  return (
+    normalized.includes("/__tests__/") ||
+    normalized.includes("/tests/") ||
+    normalized.endsWith(".test.ts") ||
+    normalized.endsWith(".test.tsx") ||
+    normalized.endsWith(".test.js") ||
+    normalized.endsWith(".test.jsx") ||
+    normalized.endsWith(".spec.ts") ||
+    normalized.endsWith(".spec.tsx") ||
+    normalized.endsWith(".spec.js") ||
+    normalized.endsWith(".spec.jsx") ||
+    normalized.endsWith("_test.go") ||
+    normalized.endsWith("_test.py") ||
+    normalized.endsWith("_spec.rb") ||
+    normalized.endsWith("test.py")
+  );
+}
+
+function cloneMutation(mutation: MutationRecord): MutationRecord {
+  return { ...mutation };
+}
+
+function cloneProofCheckpoint(checkpoint: ProofCheckpoint | null): ProofCheckpoint | null {
+  return checkpoint
+    ? {
+        ...checkpoint,
+        testFiles: [...checkpoint.testFiles],
+      }
+    : null;
 }
