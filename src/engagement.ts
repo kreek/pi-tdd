@@ -6,7 +6,7 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import type { PhaseStateMachine } from "./phase.js";
 import { persistState } from "./persistence.js";
-import { formatPreflightResult, runPreflight } from "./preflight.js";
+import { formatPreflightResult, runPreflight, shouldRunPreflightOnRedEntry } from "./preflight.js";
 import { formatPostflightResult, runPostflight, type PostflightResult } from "./postflight.js";
 import { POSTFLIGHT_TOOL_NAME, PREFLIGHT_TOOL_NAME } from "./review-tools.js";
 import type { TDDConfig, TDDPhase } from "./types.js";
@@ -70,6 +70,11 @@ export interface PostflightOnDisengageOutcome {
   summary: string | null;
 }
 
+interface EngagePreflightOutcome {
+  allowed: boolean;
+  text?: string;
+}
+
 /**
  * Postflight runs on disengage only when there is real evidence the cycle
  * actually delivered something to review: TDD was engaged, a spec was set,
@@ -124,6 +129,46 @@ export async function maybeRunPostflightOnDisengage(
   }
 }
 
+async function runEngagePreflightGate(
+  machine: PhaseStateMachine,
+  phase: TDDPhase,
+  reason: string,
+  ctx: ExtensionContext,
+  config: TDDConfig
+): Promise<EngagePreflightOutcome> {
+  if (!shouldRunPreflightOnRedEntry(machine.phase, machine.enabled, phase, config)) {
+    return { allowed: true };
+  }
+
+  try {
+    const result = await runPreflight({ spec: machine.plan, userStory: reason }, ctx, config);
+    if (result.ok) {
+      return { allowed: true };
+    }
+
+    const summary = formatPreflightResult(result);
+    if (ctx.hasUI) {
+      ctx.ui.notify(
+        `Pre-flight blocked engagement into RED: ${result.issues.length} issue(s)`,
+        "warning"
+      );
+    }
+    return {
+      allowed: false,
+      text: `${summary}\n\nEngagement into RED is blocked. Refine the spec checklist and call tdd_engage again.`,
+    };
+  } catch (error) {
+    const errorReason = error instanceof Error ? error.message : String(error);
+    if (ctx.hasUI) {
+      ctx.ui.notify(`Pre-flight gate failed: ${errorReason}`, "warning");
+    }
+    return {
+      allowed: false,
+      text: `Pre-flight gate failed to run: ${errorReason}. Engagement into RED blocked. Resolve the review model error and retry.`,
+    };
+  }
+}
+
 export function createEngageTool(
   deps: EngagementDeps
 ): ToolDefinition<ReturnType<typeof Type.Object>, EngagementDetails, EngageParams> {
@@ -175,46 +220,17 @@ export function createEngageTool(
       const reason = String(params.reason ?? "feature/bug work");
 
       const wasEnabled = machine.enabled;
-      const previousPhase = machine.phase;
-
-      // Pre-flight gate when entering RED from anywhere except RED itself.
-      // The cycle cannot start with a weak spec.
-      if (phase === "RED" && previousPhase !== "RED" && config.runPreflightOnRed) {
-        try {
-          const result = await runPreflight({ spec: machine.plan, userStory: reason }, ctx, config);
-          if (!result.ok) {
-            const summary = formatPreflightResult(result);
-            if (ctx.hasUI) {
-              ctx.ui.notify(
-                `Pre-flight blocked engagement into RED: ${result.issues.length} issue(s)`,
-                "warning"
-              );
-            }
-            return {
-              content: [
-                {
-                  type: "text",
-                  text: `${summary}\n\nEngagement into RED is blocked. Refine the spec checklist and call tdd_engage again.`,
-                },
-              ],
-              details: { engaged: machine.enabled, phase: machine.phase, reason },
-            };
-          }
-        } catch (error) {
-          const errorReason = error instanceof Error ? error.message : String(error);
-          if (ctx.hasUI) {
-            ctx.ui.notify(`Pre-flight gate failed: ${errorReason}`, "warning");
-          }
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Pre-flight gate failed to run: ${errorReason}. Engagement into RED blocked. Resolve the review model error and retry.`,
-              },
-            ],
-            details: { engaged: machine.enabled, phase: machine.phase, reason },
-          };
-        }
+      const preflight = await runEngagePreflightGate(machine, phase, reason, ctx, config);
+      if (!preflight.allowed) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: preflight.text ?? "Engagement into RED is blocked.",
+            },
+          ],
+          details: { engaged: machine.enabled, phase: machine.phase, reason },
+        };
       }
 
       machine.enabled = true;
@@ -321,8 +337,19 @@ export async function applyLifecycleHooks(
   }
 
   if (config.engageOnTools.includes(toolName) && !machine.enabled) {
-    machine.enabled = true;
     const targetPhase = config.startInSpecMode ? "SPEC" : "RED";
+    const preflight = await runEngagePreflightGate(
+      machine,
+      targetPhase,
+      `lifecycle hook: ${toolName}`,
+      ctx,
+      config
+    );
+    if (!preflight.allowed) {
+      return { isControlTool: false };
+    }
+
+    machine.enabled = true;
     if (machine.phase !== targetPhase) {
       machine.transitionTo(targetPhase, `lifecycle hook: ${toolName}`, true);
     }

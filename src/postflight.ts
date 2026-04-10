@@ -133,7 +133,11 @@ export function parsePostflightResponse(raw: string): PostflightResult {
   }
 
   const obj = parsed as Record<string, unknown>;
-  const ok = Boolean(obj.ok);
+  if (typeof obj.ok !== "boolean") {
+    throw new Error("Postflight response `ok` field must be boolean");
+  }
+
+  const ok = obj.ok;
   const reason = typeof obj.reason === "string" ? obj.reason : "";
 
   if (ok) {

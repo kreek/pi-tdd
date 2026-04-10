@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { TDDConfig } from "./types.js";
+import type { TDDConfig, TDDPhase } from "./types.js";
 import { extractJSON, runReview } from "./reviews.js";
 
 /**
@@ -26,6 +26,15 @@ export interface PreflightIssue {
 export type PreflightResult =
   | { ok: true; reason: string }
   | { ok: false; issues: PreflightIssue[]; reason: string };
+
+export function shouldRunPreflightOnRedEntry(
+  currentPhase: TDDPhase,
+  enabled: boolean,
+  targetPhase: TDDPhase,
+  config: Pick<TDDConfig, "runPreflightOnRed">
+): boolean {
+  return config.runPreflightOnRed && targetPhase === "RED" && (!enabled || currentPhase !== "RED");
+}
 
 const SYSTEM_PROMPT = `You are a TDD pre-flight reviewer. Your role is to check that a spec checklist is solid enough to drive a clean RED → GREEN → REFACTOR cycle BEFORE any code is written.
 
@@ -109,7 +118,11 @@ export function parsePreflightResponse(raw: string): PreflightResult {
   }
 
   const obj = parsed as Record<string, unknown>;
-  const ok = Boolean(obj.ok);
+  if (typeof obj.ok !== "boolean") {
+    throw new Error("Preflight response `ok` field must be boolean");
+  }
+
+  const ok = obj.ok;
   const reason = typeof obj.reason === "string" ? obj.reason : "";
 
   if (ok) {

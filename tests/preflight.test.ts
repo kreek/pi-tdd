@@ -63,6 +63,10 @@ describe("parsePreflightResponse", () => {
     expect(() => parsePreflightResponse("not json at all")).toThrow();
   });
 
+  it("requires `ok` to be a boolean", () => {
+    expect(() => parsePreflightResponse('{"ok": "false", "reason": "nope"}')).toThrow(/boolean/);
+  });
+
   it("ignores malformed issue entries", () => {
     const raw = JSON.stringify({
       ok: false,

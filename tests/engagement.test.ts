@@ -99,7 +99,10 @@ describe("applyLifecycleHooks", () => {
 
   it("engages TDD when a configured engageOnTools tool is called", async () => {
     const machine = new PhaseStateMachine();
-    const config = makeConfig({ engageOnTools: ["mcp__manifest__start_feature"] });
+    const config = makeConfig({
+      engageOnTools: ["mcp__manifest__start_feature"],
+      runPreflightOnRed: false,
+    });
     const result = await applyLifecycleHooks(
       "mcp__manifest__start_feature",
       makeDeps(machine, config),
@@ -108,6 +111,20 @@ describe("applyLifecycleHooks", () => {
     expect(result.engaged).toBe(true);
     expect(machine.enabled).toBe(true);
     expect(machine.phase).toBe("RED");
+  });
+
+  it("blocks auto-engage into RED when preflight fails", async () => {
+    const machine = new PhaseStateMachine();
+    const config = makeConfig({ engageOnTools: ["mcp__manifest__start_feature"] });
+    const result = await applyLifecycleHooks(
+      "mcp__manifest__start_feature",
+      makeDeps(machine, config),
+      makeContext()
+    );
+
+    expect(result.engaged).toBeUndefined();
+    expect(machine.enabled).toBe(false);
+    expect(machine.getHistory()).toHaveLength(0);
   });
 
   it("uses SPEC when startInSpecMode is true", async () => {
@@ -184,7 +201,7 @@ describe("createEngageTool", () => {
 
   it("honours an explicit RED phase", async () => {
     const machine = new PhaseStateMachine();
-    const tool = createEngageTool(makeDeps(machine, makeConfig()));
+    const tool = createEngageTool(makeDeps(machine, makeConfig({ runPreflightOnRed: false })));
 
     await tool.execute(
       "call-2",
@@ -196,6 +213,24 @@ describe("createEngageTool", () => {
 
     expect(machine.enabled).toBe(true);
     expect(machine.phase).toBe("RED");
+  });
+
+  it("blocks direct RED engagement when preflight fails", async () => {
+    const machine = new PhaseStateMachine();
+    const tool = createEngageTool(makeDeps(machine, makeConfig()));
+
+    const result = await tool.execute(
+      "call-2b",
+      { phase: "RED", reason: "fix off-by-one in pagination" },
+      undefined,
+      undefined,
+      makeContext()
+    );
+
+    expect(machine.enabled).toBe(false);
+    expect(machine.getHistory()).toHaveLength(0);
+    expect(result.details).toMatchObject({ engaged: false, phase: "RED" });
+    expect(result.content[0]?.text).toContain("Engagement into RED is blocked");
   });
 
   it("does not engage when config disables TDD", async () => {
@@ -239,7 +274,13 @@ describe("/tdd phase commands engage when dormant", () => {
     const machine = new PhaseStateMachine();
     expect(machine.enabled).toBe(false);
 
-    await handleTddCommand("red", machine, makeContext(), vi.fn());
+    await handleTddCommand(
+      "red",
+      machine,
+      makeContext(),
+      vi.fn(),
+      makeConfig({ runPreflightOnRed: false })
+    );
 
     expect(machine.enabled).toBe(true);
     expect(machine.phase).toBe("RED");

@@ -63,6 +63,10 @@ describe("parsePostflightResponse", () => {
   it("throws on non-JSON responses", () => {
     expect(() => parsePostflightResponse("not json")).toThrow();
   });
+
+  it("requires `ok` to be a boolean", () => {
+    expect(() => parsePostflightResponse('{"ok": "true", "reason": "nope"}')).toThrow(/boolean/);
+  });
 });
 
 describe("runPostflight early-return paths", () => {
