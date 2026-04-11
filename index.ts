@@ -7,6 +7,7 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth } from "@mariozechner/pi-tui";
+import { Type } from "@sinclair/typebox";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -229,28 +230,66 @@ export default function tddExtension(pi: ExtensionAPI) {
 		}
 	}
 
+	// -- Enable / disable helpers ---------------------------------------------
+
+	async function enableTdd(ctx: ExtensionContext): Promise<string> {
+		if (phase !== "off") return "TDD is already active";
+		testCommand = await inferTestCommand(ctx.cwd);
+		if (!testCommand && ctx.hasUI) {
+			testCommand = (await ctx.ui.input("Test command", "npm test")) || undefined;
+		}
+		if (!testCommand) {
+			ctx.ui.notify("TDD requires a test command", "warning");
+			return "Could not determine test command";
+		}
+		cycleCount = 1;
+		lastSummary = undefined;
+		setPhase("specifying", ctx);
+		ctx.ui.notify("TDD on \u2014 write a failing test");
+		return "TDD enabled \u2014 SPECIFYING phase. Write a failing test first.";
+	}
+
+	function disableTdd(ctx: ExtensionContext): string {
+		if (phase === "off") return "TDD is already off";
+		setPhase("off", ctx);
+		ctx.ui.notify("TDD off");
+		return "TDD disabled";
+	}
+
 	// -- /tdd command ---------------------------------------------------------
 
 	pi.registerCommand("tdd", {
 		description: "Toggle TDD mode (specifying-implementing-refactoring)",
 		handler: async (_args, ctx) => {
 			if (phase === "off") {
-				testCommand = await inferTestCommand(ctx.cwd);
-				if (!testCommand && ctx.hasUI) {
-					testCommand = (await ctx.ui.input("Test command", "npm test")) || undefined;
-				}
-				if (!testCommand) {
-					ctx.ui.notify("TDD requires a test command", "warning");
-					return;
-				}
-				cycleCount = 1;
-				lastSummary = undefined;
-				setPhase("specifying", ctx);
-				ctx.ui.notify("TDD on \u2014 write a failing test");
+				await enableTdd(ctx);
 			} else {
-				setPhase("off", ctx);
-				ctx.ui.notify("TDD off");
+				disableTdd(ctx);
 			}
+		},
+	});
+
+	// -- Agent tools ----------------------------------------------------------
+
+	pi.registerTool({
+		name: "tdd_start",
+		label: "TDD Start",
+		description: "Enable TDD mode for feature or bug fix work. Call this before writing code when the task involves new behavior or fixing a bug.",
+		parameters: Type.Object({}),
+		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+			const msg = await enableTdd(ctx);
+			return { content: [{ type: "text", text: msg }], details: {} };
+		},
+	});
+
+	pi.registerTool({
+		name: "tdd_done",
+		label: "TDD Done",
+		description: "End TDD mode. Call this when the current feature or bug fix is complete and all tests pass.",
+		parameters: Type.Object({}),
+		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+			const msg = disableTdd(ctx);
+			return { content: [{ type: "text", text: msg }], details: {} };
 		},
 	});
 
@@ -346,12 +385,21 @@ export default function tddExtension(pi: ExtensionAPI) {
 	// -- System prompt injection ----------------------------------------------
 
 	pi.on("before_agent_start", async (event) => {
-		if (phase === "off") return undefined;
+		if (phase === "off") {
+			return {
+				systemPrompt:
+					event.systemPrompt +
+					"\n\n[TDD MODE \u2014 OFF]\n" +
+					"TDD mode enforces test-driven development (specifying \u2192 implementing \u2192 refactoring). " +
+					"For feature work or bug fixes, call tdd_start to enable it before writing code. " +
+					"Do not use TDD for config changes, documentation, scaffolding, or exploratory tasks.",
+			};
+		}
 
 		const guidance: Record<string, string> = {
 			specifying: "Write a failing test FIRST. Do not modify production code until a test exists and fails. Use standard test file naming (*.test.*, *.spec.*, *_test.*, *_spec.*, or files in __tests__/ or test/ directories).",
 			implementing: "Write the MINIMAL production code to make the failing test pass. No extra functionality or refactoring yet.",
-			refactoring: "Restructure code freely but keep all tests passing. No new behavior. If a change causes test failure, revert it immediately.",
+			refactoring: "Restructure code freely but keep all tests passing. No new behavior. If a change causes test failure, revert it immediately. When the task is complete and all tests pass, call tdd_done.",
 		};
 
 		const testOrg = [
