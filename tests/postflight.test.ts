@@ -15,16 +15,9 @@ function makeConfig(overrides: Partial<TDDConfig> = {}): TDDConfig {
     reviewModel: null,
     reviewProvider: null,
     reviewModels: {},
-    autoTransition: true,
-    refactorTransition: "user",
-    allowReadInAllPhases: true,
-    maxDiffsInContext: 5,
-    persistPhase: true,
-    startInSpecMode: false,
-    defaultEngaged: false,
     runPreflightOnRed: true,
-    engageOnTools: [],
-    disengageOnTools: [],
+    startOnTools: [],
+    endOnTools: [],
     guidelines: resolveGuidelines({}),
     ...overrides,
   };
@@ -85,45 +78,23 @@ describe("runPostflight early-return paths", () => {
     }
   });
 
-  it("fails when business requests only have helper-level proof", async () => {
+  it("delegates to the review model when there is no early-return condition", async () => {
     const machine = new PhaseStateMachine({
       enabled: true,
       phase: "REFACTOR",
       plan: ["POST /api/links returns 201 and a short URL."],
-      requestedSeam: "business_http",
-      proofCheckpoint: {
-        itemIndex: 1,
-        item: "POST /api/links returns 201 and a short URL.",
-        seam: "internal_support",
-        command: "npm run test:unit",
-        commandFamily: "npm:test:unit",
-        level: "unit",
-        testFiles: ["src/lib/server/link.service.spec.ts"],
-        mutationCountAtCapture: 1,
-      },
     });
+    machine.recordTestResult("1 passed", false, "npm run test:integration", "integration");
 
-    const result = await runPostflight(
-      { state: machine.getSnapshot(), userStory: "POST /api/links creates short links." },
-      {} as never,
-      makeConfig()
-    );
-
-    expect(result).toEqual({
-      ok: false,
-      reason: "The green test evidence does not prove the requested business seam yet.",
-      gaps: [
-        {
-          itemIndex: 1,
-          message: "Requested HTTP/API contract, but the proving slice stayed at internal support work.",
-        },
-        {
-          itemIndex: null,
-          message:
-            "Add route/page-level proof for this feature before treating helper, schema, service, or migration tests as complete delivery.",
-        },
-      ],
-    });
+    // No review model configured, so runPostflight will throw when it tries
+    // to call the LLM — confirming the early-return paths are bypassed.
+    await expect(
+      runPostflight(
+        { state: machine.getSnapshot(), userStory: "POST /api/links creates short links." },
+        {} as never,
+        makeConfig()
+      )
+    ).rejects.toThrow();
   });
 });
 
@@ -148,18 +119,13 @@ describe("buildPostflightUserPrompt", () => {
       userStory: "persist settings through the HTTP API",
     });
 
-    expect(prompt).toContain("Proof checkpoint for this cycle:");
-    expect(prompt).toContain("Requested seam: HTTP/API contract");
-    expect(prompt).toContain("Observed proof seam: HTTP/API contract");
-    expect(prompt).toContain("Spec item: 1. persist settings through the HTTP API");
-    expect(prompt).toContain("Proof seam: HTTP/API contract");
-    expect(prompt).toContain("Captured in RED by: FAIL | INTEGRATION | npm run test:integration");
-    expect(prompt).toContain("Checkpoint test files:");
-    expect(prompt).toContain("tests/http/settings.integration.test.ts");
-    expect(prompt).toContain("Proof files changed after checkpoint:");
-    expect(prompt).toContain("Recent test runs captured in this cycle:");
-    expect(prompt).toContain("PASS | INTEGRATION | npm run test:integration");
-    expect(prompt).toContain("right level");
+    expect(prompt).toContain("Proof checkpoint (first failing test in RED):");
+    expect(prompt).toContain("Command: npm run test:integration");
+    expect(prompt).toContain("Test files: tests/http/settings.integration.test.ts");
+    expect(prompt).toContain("Proof files changed after checkpoint: tests/http/settings.integration.test.ts");
+    expect(prompt).toContain("Test runs captured in this cycle:");
+    expect(prompt).toContain("FAIL | npm run test:integration");
+    expect(prompt).toContain("PASS | npm run test:integration");
   });
 });
 
@@ -179,8 +145,8 @@ describe("formatPostflightResult", () => {
         { itemIndex: null, message: "missing edge case" },
       ],
     });
-    expect(text).toContain("Post-flight found 2 gap(s)");
-    expect(text).toContain("1. weak test");
+    expect(text).toContain("Post-flight found 2 issue(s): two gaps");
+    expect(text).toContain("• weak test");
     expect(text).toContain("• missing edge case");
   });
 });

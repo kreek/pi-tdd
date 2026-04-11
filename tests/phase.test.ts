@@ -43,8 +43,8 @@ describe("PhaseStateMachine", () => {
       },
     ]);
     expect(machine.getSnapshot().proofCheckpoint).toEqual({
-      itemIndex: 1,
-      item: "persist settings",
+      itemIndex: null,
+      item: null,
       seam: "unknown",
       command: "npm run test:unit",
       commandFamily: "npm:test",

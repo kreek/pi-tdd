@@ -162,20 +162,6 @@ export class PhaseStateMachine {
     this.state.requestedSeam = seam;
   }
 
-  completePlanItem(): void {
-    if (this.state.planCompleted < this.state.plan.length) {
-      this.state.planCompleted++;
-    }
-  }
-
-  currentPlanItem(): string | null {
-    if (this.state.planCompleted < this.state.plan.length) {
-      return this.state.plan[this.state.planCompleted];
-    }
-
-    return null;
-  }
-
   addDiff(summary: string, maxDiffs: number): void {
     this.state.diffs.push(summary);
     if (this.state.diffs.length > maxDiffs) {
@@ -217,10 +203,10 @@ export class PhaseStateMachine {
 
     const testFiles = testMutationPaths(this.state.mutations);
     this.state.proofCheckpoint = {
-      itemIndex: currentPlanItemIndex(this.state),
-      item: this.currentPlanItem(),
+      itemIndex: null,
+      item: null,
       seam: classifyProofSeam({
-        item: this.currentPlanItem(),
+        item: null,
         testFiles,
         command: signal.command,
       }),
@@ -270,7 +256,7 @@ export class PhaseStateMachine {
     const testStatus =
       this.state.lastTestFailed === null ? "UNKNOWN" : this.state.lastTestFailed ? "FAILING" : "PASSING";
     const planProgress =
-      this.state.plan.length > 0 ? ` | Spec: ${this.state.planCompleted}/${this.state.plan.length}` : "";
+      this.state.plan.length > 0 ? ` | Spec: ${this.state.plan.length} item(s)` : "";
     return `[TDD: ${this.state.phase}] | Tests: ${testStatus} | Cycle: ${this.state.cycleCount}${planProgress}`;
   }
 
@@ -311,10 +297,6 @@ export class PhaseStateMachine {
       return next;
     });
   }
-}
-
-function currentPlanItemIndex(state: PhaseState): number | null {
-  return state.planCompleted < state.plan.length ? state.planCompleted + 1 : null;
 }
 
 function testMutationPaths(mutations: MutationRecord[]): string[] {

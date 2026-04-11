@@ -91,12 +91,12 @@ export interface TDDConfig {
   persistPhase: boolean;
   startInSpecMode: boolean;
   /**
-   * If true, every fresh session starts with TDD engaged (legacy behavior).
-   * If false (default), sessions start dormant — TDD only engages when the
+   * If true, every fresh session starts with TDD active (legacy behavior).
+   * If false (default), sessions start dormant — TDD only starts when the
    * agent calls tdd_start, when a configured lifecycle hook fires, or when
    * the user runs /tdd on or /tdd with a feature/bug request.
    */
-  defaultEngaged: boolean;
+  defaultStarted: boolean;
   /**
    * If true (default), transitioning out of SPEC into RED automatically fires
    * the preflight check first. If preflight finds issues, the transition is
@@ -105,15 +105,15 @@ export interface TDDConfig {
    */
   runPreflightOnRed: boolean;
   /**
-   * Tool names that auto-engage TDD when called. Useful for hooking task or
+   * Tool names that auto-start TDD when called. Useful for hooking task or
    * feature management tools (e.g., manifest's start_feature) into the TDD
    * lifecycle without requiring the agent to remember tdd_start.
    */
-  engageOnTools: string[];
+  startOnTools: string[];
   /**
-   * Tool names that auto-disengage TDD when called. Pair with engageOnTools to
+   * Tool names that auto-end TDD when called. Pair with startOnTools to
    * close out a feature lifecycle (e.g., manifest's complete_feature).
    */
-  disengageOnTools: string[];
+  endOnTools: string[];
   guidelines: GuidelinesConfig;
 }

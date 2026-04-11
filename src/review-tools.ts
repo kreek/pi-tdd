@@ -3,7 +3,7 @@ import type {
   ExtensionContext,
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
-import type { EngagementDeps } from "./engagement.js";
+import type { LifecycleDeps } from "./engagement.js";
 import type { PreflightResult } from "./preflight.js";
 import { formatPostflightResult, runPostflight, type PostflightResult } from "./postflight.js";
 import { persistState } from "./persistence.js";
@@ -29,7 +29,7 @@ interface PostflightParams {
 }
 
 export function createPreflightTool(
-  deps: EngagementDeps
+  deps: LifecycleDeps
 ): ToolDefinition<ReturnType<typeof Type.Object>, PreflightResult, PreflightParams> {
   return {
     name: PREFLIGHT_TOOL_NAME,
@@ -94,7 +94,7 @@ export function createPreflightTool(
 }
 
 export function createPostflightTool(
-  deps: EngagementDeps
+  deps: LifecycleDeps
 ): ToolDefinition<ReturnType<typeof Type.Object>, PostflightResult, PostflightParams> {
   return {
     name: POSTFLIGHT_TOOL_NAME,
@@ -141,7 +141,7 @@ export function createPostflightTool(
 
 function readinessSummary(
   result: Awaited<ReturnType<typeof runRedReadinessCheck>>,
-  machine: EngagementDeps["machine"],
+  machine: LifecycleDeps["machine"],
   specSession: SpecSessionOutcome
 ): string {
   const lines = [formatRedReadinessResult(result)];

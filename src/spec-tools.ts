@@ -3,7 +3,7 @@ import type {
   ExtensionContext,
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
-import type { EngagementDeps } from "./engagement.js";
+import type { LifecycleDeps } from "./engagement.js";
 import { persistState } from "./persistence.js";
 import { loadPromptList } from "./prompt-loader.js";
 import { classifyRequestedSeam } from "./seams.js";
@@ -29,7 +29,7 @@ interface SpecSetDetails {
 }
 
 export function createRefineFeatureSpecTool(
-  deps: EngagementDeps
+  deps: LifecycleDeps
 ): ToolDefinition<ReturnType<typeof Type.Object>, SpecSetDetails, SpecSetParams> {
   return {
     name: REFINE_FEATURE_SPEC_TOOL_NAME,
@@ -87,7 +87,7 @@ function normalizeSpecItems(items: unknown): string[] {
 }
 
 function disabledSpecSetResponse(
-  machine: EngagementDeps["machine"],
+  machine: LifecycleDeps["machine"],
   ctx: ExtensionContext
 ) {
   ctx.ui.setStatus(STATUS_KEY, machine.bottomBarText());
@@ -107,7 +107,7 @@ function disabledSpecSetResponse(
 }
 
 function invalidSpecSetResponse(
-  machine: EngagementDeps["machine"],
+  machine: LifecycleDeps["machine"],
   ctx: ExtensionContext
 ) {
   if (ctx.hasUI) {
@@ -137,7 +137,7 @@ function notifySpecSet(ctx: ExtensionContext, count: number, waitingForHarness: 
 }
 
 function specSetDetails(
-  machine: EngagementDeps["machine"],
+  machine: LifecycleDeps["machine"],
   ok: boolean
 ): SpecSetDetails {
   return {
@@ -149,7 +149,7 @@ function specSetDetails(
 }
 
 function specSetSummary(
-  machine: EngagementDeps["machine"],
+  machine: LifecycleDeps["machine"],
   waitingForHarness: boolean
 ): string {
   if (!waitingForHarness) {

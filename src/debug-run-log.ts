@@ -86,8 +86,8 @@ export function summarizeConfig(config: TDDConfig) {
     reviewProvider: config.reviewProvider,
     reviewModel: config.reviewModel,
     reviewOverrides: Object.keys(config.reviewModels),
-    engageOnTools: [...config.engageOnTools],
-    disengageOnTools: [...config.disengageOnTools],
+    startOnTools: [...config.startOnTools],
+    endOnTools: [...config.endOnTools],
   };
 }
 

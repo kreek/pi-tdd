@@ -211,8 +211,8 @@ describe("evaluateTransition", () => {
 
     expect(machine.phase).toBe("GREEN");
     expect(machine.getSnapshot().proofCheckpoint).toEqual({
-      itemIndex: 1,
-      item: "persist settings through the HTTP API",
+      itemIndex: null,
+      item: null,
       seam: "business_http",
       command: "npm run test:integration",
       commandFamily: "npm:test:integration",

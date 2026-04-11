@@ -29,10 +29,10 @@ function makeConfig(overrides: Partial<TDDConfig> = {}): TDDConfig {
     maxDiffsInContext: 5,
     persistPhase: true,
     startInSpecMode: false,
-    defaultEngaged: false,
+    defaultStarted: false,
     runPreflightOnRed: true,
-    engageOnTools: [],
-    disengageOnTools: [],
+    startOnTools: [],
+    endOnTools: [],
     guidelines: resolveGuidelines({}),
     ...overrides,
   };
@@ -74,7 +74,7 @@ describe("handleTddCommand", () => {
     expect(machine.phase).toBe("SPEC");
     expect(machine.requestedSeam).toBe("business_domain");
     expect(publish).toHaveBeenCalledWith(
-      expect.stringContaining("TDD engaged for: fix slug validation when the custom slug is reserved")
+      expect.stringContaining("TDD started for: fix slug validation when the custom slug is reserved")
     );
   });
 
@@ -94,17 +94,17 @@ describe("handleTddCommand", () => {
     expect(publish).toHaveBeenCalledWith(expect.stringContaining("TDD stays dormant for scaffolding"));
   });
 
-  it("engages TDD on /tdd on", async () => {
+  it("starts TDD on /tdd on", async () => {
     const machine = new PhaseStateMachine();
     const publish = vi.fn();
 
     await handleTddCommand("on", machine, createCommandContext(), publish, makeConfig());
 
     expect(machine.enabled).toBe(true);
-    expect(publish).toHaveBeenCalledWith(expect.stringContaining("TDD engaged."));
+    expect(publish).toHaveBeenCalledWith(expect.stringContaining("TDD started."));
   });
 
-  it("disengages TDD on /tdd off", async () => {
+  it("ends TDD on /tdd off", async () => {
     const machine = new PhaseStateMachine({
       enabled: true,
       phase: "RED",
@@ -115,7 +115,7 @@ describe("handleTddCommand", () => {
     await handleTddCommand("off", machine, createCommandContext(), publish, makeConfig());
 
     expect(machine.enabled).toBe(false);
-    expect(publish).toHaveBeenCalledWith(expect.stringContaining("TDD disengaged."));
+    expect(publish).toHaveBeenCalledWith(expect.stringContaining("TDD ended."));
   });
 
   it("rejects legacy admin subcommands without mutating state", async () => {
@@ -132,7 +132,7 @@ describe("handleTddCommand", () => {
     );
   });
 
-  it("maps legacy engage/disengage verbs to deprecation guidance", async () => {
+  it("maps legacy engage/disengage verbs to deprecation guidance (pointing to /tdd on|off)", async () => {
     const publish = vi.fn();
 
     await handleTddCommand("engage", new PhaseStateMachine(), createCommandContext(), publish, makeConfig());

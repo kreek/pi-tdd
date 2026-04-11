@@ -8,9 +8,9 @@ import { handleTddCommand } from "./commands.js";
 import { persistState, restoreState } from "./persistence.js";
 import {
   applyLifecycleHooks,
-  createDisengageTool,
-  createEngageTool,
-  type EngagementDeps,
+  createEndTool,
+  createStartTool,
+  type LifecycleDeps,
 } from "./engagement.js";
 import { createPostflightTool, createPreflightTool } from "./review-tools.js";
 import { createRefineFeatureSpecTool } from "./spec-tools.js";
@@ -73,22 +73,22 @@ export default function activate(pi: ExtensionAPI): void {
     loggedTransitionCount = history.length;
   }
 
-  const engagementDeps: EngagementDeps = {
+  const lifecycleDeps: LifecycleDeps = {
     pi,
     machine,
     getConfig: () => {
       if (!config) {
-        throw new Error("TDD config not initialised; engagement tool invoked before any session event");
+        throw new Error("TDD config not initialised; lifecycle tool invoked before any session event");
       }
       return config;
     },
   };
 
-  pi.registerTool(createEngageTool(engagementDeps));
-  pi.registerTool(createDisengageTool(engagementDeps));
-  pi.registerTool(createRefineFeatureSpecTool(engagementDeps));
-  pi.registerTool(createPreflightTool(engagementDeps));
-  pi.registerTool(createPostflightTool(engagementDeps));
+  pi.registerTool(createStartTool(lifecycleDeps));
+  pi.registerTool(createEndTool(lifecycleDeps));
+  pi.registerTool(createRefineFeatureSpecTool(lifecycleDeps));
+  pi.registerTool(createPreflightTool(lifecycleDeps));
+  pi.registerTool(createPostflightTool(lifecycleDeps));
 
   function updateHud(ctx: ExtensionContext | ExtensionCommandContext, nextConfig?: TDDConfig): void {
     if (!ctx.hasUI) {
@@ -111,7 +111,7 @@ export default function activate(pi: ExtensionAPI): void {
     const saved = restoreState(ctx);
 
     // Fresh sessions always start dormant. Within-session tree navigation
-    // preserves the live engagement state from the saved branch.
+    // preserves the live lifecycle state from the saved branch.
     const desiredEnabled = nextConfig.enabled && !options.freshSession && (saved?.enabled ?? false);
 
     if (saved) {
@@ -215,7 +215,7 @@ export default function activate(pi: ExtensionAPI): void {
   pi.on("tool_call", async (event, ctx) => {
     const nextConfig = refreshConfig(ctx);
     const beforeState = summarizeState(machine.getSnapshot());
-    const lifecycle = await applyLifecycleHooks(event.toolName, engagementDeps, ctx);
+    const lifecycle = await applyLifecycleHooks(event.toolName, lifecycleDeps, ctx);
     if (lifecycle.isControlTool) {
       logDebugRunEvent({
         type: "tool_call",
@@ -291,7 +291,7 @@ export default function activate(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("tdd", {
-    description: "Engage or disengage TDD, or start TDD for a feature or bug request",
+    description: "Start or end TDD, or begin TDD for a feature or bug request",
     getArgumentCompletions: (prefix) => {
       const commands = ["on", "off"];
       const filtered = commands.filter((command) => command.startsWith(prefix));

@@ -64,7 +64,7 @@ describe("createRefineFeatureSpecTool", () => {
     expect(machine.plan).toEqual(["creates a short link", "redirects by slug"]);
     expect(machine.requestedSeam).toBe("business_http");
     expect(result.details).toMatchObject({ ok: true, count: 2, phase: "SPEC" });
-    expect(result.content[0]?.text).toContain("Feature spec (0/2 completed):");
+    expect(result.content[0]?.text).toContain("Feature spec (2 item(s)):");
   });
 
   it("replaces an existing checklist", async () => {
@@ -72,7 +72,7 @@ describe("createRefineFeatureSpecTool", () => {
       enabled: true,
       phase: "SPEC",
       plan: ["old item"],
-      planCompleted: 1,
+      planCompleted: 0,
     });
     const tool = createRefineFeatureSpecTool(makeDeps(machine, makeConfig()));
 
@@ -85,7 +85,6 @@ describe("createRefineFeatureSpecTool", () => {
     );
 
     expect(machine.plan).toEqual(["new item"]);
-    expect(machine.planCompleted).toBe(0);
   });
 
   it("rejects an empty checklist", async () => {

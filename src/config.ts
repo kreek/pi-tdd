@@ -15,10 +15,10 @@ const DEFAULTS: Omit<TDDConfig, "guidelines"> = {
   maxDiffsInContext: 5,
   persistPhase: true,
   startInSpecMode: false,
-  defaultEngaged: false,
+  defaultStarted: false,
   runPreflightOnRed: true,
-  engageOnTools: [],
-  disengageOnTools: [],
+  startOnTools: [],
+  endOnTools: [],
 };
 
 type UserConfig = Partial<Omit<TDDConfig, "guidelines">> & {
@@ -28,6 +28,12 @@ type UserConfig = Partial<Omit<TDDConfig, "guidelines">> & {
   judgeModel?: string | null;
   /** Deprecated removed option; ignored on load. */
   temperature?: number;
+  /** Deprecated alias for defaultStarted. */
+  defaultEngaged?: boolean;
+  /** Deprecated alias for startOnTools. */
+  engageOnTools?: string[];
+  /** Deprecated alias for endOnTools. */
+  disengageOnTools?: string[];
   guidelines?: Partial<GuidelinesConfig> & { plan?: string | null };
 };
 
@@ -83,11 +89,17 @@ export function loadConfig(cwd: string): TDDConfig {
   const guidelines = resolveGuidelines(user.guidelines);
   const reviewProvider = user.reviewProvider ?? user.judgeProvider;
   const reviewModel = user.reviewModel ?? user.judgeModel;
+  const defaultStarted = user.defaultStarted ?? user.defaultEngaged;
+  const startOnTools = user.startOnTools ?? user.engageOnTools;
+  const endOnTools = user.endOnTools ?? user.disengageOnTools;
   const {
     guidelines: _ignoredGuidelines,
     judgeProvider: _ignoredJudgeProvider,
     judgeModel: _ignoredJudgeModel,
     temperature: _ignoredTemperature,
+    defaultEngaged: _ignoredDefaultEngaged,
+    engageOnTools: _ignoredEngageOnTools,
+    disengageOnTools: _ignoredDisengageOnTools,
     ...rest
   } = user;
 
@@ -96,6 +108,9 @@ export function loadConfig(cwd: string): TDDConfig {
     ...(rest as Partial<TDDConfig>),
     reviewProvider: reviewProvider ?? DEFAULTS.reviewProvider,
     reviewModel: reviewModel ?? DEFAULTS.reviewModel,
+    defaultStarted: defaultStarted ?? DEFAULTS.defaultStarted,
+    startOnTools: startOnTools ?? DEFAULTS.startOnTools,
+    endOnTools: endOnTools ?? DEFAULTS.endOnTools,
     guidelines,
   };
 }

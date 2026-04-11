@@ -1,7 +1,7 @@
 import type { ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { TDDConfig } from "./types.js";
 import type { PhaseStateMachine } from "./phase.js";
-import { isBootstrapWorkReason, maybeRunPostflightOnDisengage } from "./engagement.js";
+import { isBootstrapWorkReason, maybeRunPostflightOnEnd } from "./engagement.js";
 import { classifyRequestedSeam } from "./seams.js";
 import { hasRunnableTestHarness } from "./test-harness.js";
 
@@ -46,7 +46,7 @@ export async function handleTddCommand(
 
   switch (sub) {
     case "off":
-      await handleDisengageCommand(machine, ctx, publish, config);
+      await handleEndCommand(machine, ctx, publish, config);
       return;
 
     case "on":
@@ -80,11 +80,11 @@ function publishDisabled(
 
 function formatLegacyCommandMessage(command: string): string {
   if (command === "engage") {
-    return "Legacy `/tdd engage` was removed. Use `/tdd on` to engage TDD, or `/tdd <feature or bug request>` to start a concrete slice of work.";
+    return "Legacy `/tdd engage` was removed. Use `/tdd on` to start TDD, or `/tdd <feature or bug request>` to begin a concrete slice of work.";
   }
 
   if (command === "disengage") {
-    return "Legacy `/tdd disengage` was removed. Use `/tdd off` to disengage TDD.";
+    return "Legacy `/tdd disengage` was removed. Use `/tdd off` to end TDD.";
   }
 
   if (command === "status") {
@@ -138,22 +138,22 @@ async function handleRequestCommand(
     : false;
   ctx.ui.setStatus("tdd-gate", machine.bottomBarText());
   ctx.ui.notify(
-    wasDormant || transitioned ? "TDD engaged in SPEC" : "TDD request captured in SPEC",
+    wasDormant || transitioned ? "TDD started in SPEC" : "TDD request captured in SPEC",
     "info"
   );
   publish(
-    `TDD engaged for: ${request}\nPhase: SPEC.\nRefine the checklist, then enter RED when the first failing test is clear.`
+    `TDD started for: ${request}\nPhase: SPEC.\nRefine the checklist, then enter RED when the first failing test is clear.`
   );
 }
 
-async function handleDisengageCommand(
+async function handleEndCommand(
   machine: PhaseStateMachine,
   ctx: ExtensionCommandContext,
   publish: Publish,
   config?: TDDConfig
 ): Promise<void> {
   if (config) {
-    const { summary } = await maybeRunPostflightOnDisengage(
+    const { summary } = await maybeRunPostflightOnEnd(
       machine,
       ctx as ExtensionContext,
       config
@@ -165,8 +165,8 @@ async function handleDisengageCommand(
 
   machine.enabled = false;
   ctx.ui.setStatus("tdd-gate", machine.bottomBarText());
-  ctx.ui.notify("TDD disengaged", "info");
-  publish("TDD disengaged. Investigation and navigation are unconstrained.");
+  ctx.ui.notify("TDD ended", "info");
+  publish("TDD ended. Investigation and navigation are unconstrained.");
 }
 
 function handleOnCommand(
@@ -182,8 +182,8 @@ function handleOnCommand(
 
   machine.enabled = true;
   ctx.ui.setStatus("tdd-gate", machine.bottomBarText());
-  ctx.ui.notify("TDD engaged", "info");
-  publish(`TDD engaged. Phase: ${machine.phase}.`);
+  ctx.ui.notify("TDD started", "info");
+  publish(`TDD started. Phase: ${machine.phase}.`);
 }
 
 export function splitCommandArgs(raw: string): string[] {

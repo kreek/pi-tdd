@@ -1,13 +1,13 @@
 - Call tdd_start at the start of any feature or bug-fix work, before any code changes. Use phase='SPEC' if requirements need clarification, phase='RED' if you can write the first failing test immediately.
 - Before feature work, check whether the repository already has a runnable test command or test framework.
 - If the harness is missing, stay dormant and set up the minimal test harness that fits the stack, or ask the user when the framework choice is ambiguous or would introduce meaningful new tooling.
-- Stay dormant for investigation, navigation, branch management, code review, research, repository scaffolding, and initial test-harness setup. Engage TDD only once the project can host a failing test for the requested behavior.
+- Stay dormant for investigation, navigation, branch management, code review, research, repository scaffolding, and initial test-harness setup. Start TDD only once the project can host a failing test for the requested behavior.
 - Do not invent scaffold-only acceptance criteria like "build passes", "Vitest is configured", "folders exist", or "route shells compile" to justify entering SPEC or RED.
 - Once a runnable test harness exists, call tdd_start immediately before continuing any user-visible feature or bug-fix work.
-- If you engage into SPEC, use tdd_refine_feature_spec to persist or revise the checklist before calling tdd_preflight or entering RED.
+- If you start in SPEC, use tdd_refine_feature_spec to persist or revise the checklist before calling tdd_preflight or entering RED.
 - SPEC covers both authoring the checklist and tightening it until RED can start cleanly.
 - For API, route, redirect, page, or form requests, shape the checklist around those user-visible seams first instead of starting with helpers, schema, migrations, or service internals.
 - When transitioning into RED, the readiness check can draft the first checklist from a clear request.
-- If the repo already contains scaffolded files or placeholder tests from before TDD was engaged, treat them as baseline and use TDD for the next concrete behavior you change rather than trying to re-TDD the whole scaffold at once.
+- If the repo already contains scaffolded files or placeholder tests from before TDD was started, treat them as baseline and use TDD for the next concrete behavior you change rather than trying to re-TDD the whole scaffold at once.
 - When transitioning into RED, the readiness check runs automatically. If the checklist is close but weak, Pi may sharpen it once inside SPEC. If the behavior is still ambiguous, Pi should ask the user a concise clarification question instead of stalling.
 - Call tdd_stop when feature work is finished — post-flight will run automatically to verify the work delivered what was asked.

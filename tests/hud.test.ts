@@ -67,7 +67,7 @@ describe("buildHudLines", () => {
     );
 
     expect(lines?.[0]).toContain("[pi-tdd] SPEC");
-    expect(lines).toContain("spec: 0/1");
+    expect(lines).toContain("spec: 1 item(s)");
   });
 
   it("shows phase, checklist, last test, and proof checkpoint when engaged", () => {
@@ -105,10 +105,10 @@ describe("buildHudLines", () => {
 
     expect(lines?.[0]).toContain("[pi-tdd] GREEN");
     expect(lines?.[0]).toContain("cycle 2");
-    expect(lines?.[0]).toContain("spec 0/2");
-    expect(lines).toContain("spec: 0/2");
+    expect(lines?.[0]).toContain("spec 2");
+    expect(lines).toContain("spec: 2 item(s)");
     expect(lines).toContain(
-      "  >> 1. After creating a link via POST /api/links, GET /[slug] redirects to the..."
+      "  1. After creating a link via POST /api/links, GET /[slug] redirects to the des..."
     );
     expect(lines).toContain("test: FAIL | npx vitest --run src/routes/[slug]/server.spec.ts");
     expect(lines).toContain("result: 1 failed");
@@ -140,7 +140,7 @@ describe("buildHudLines", () => {
       makeConfig()
     );
 
-    expect(lines).toContain("proof: none yet | item 1 needs first FAIL in RED");
+    expect(lines).toContain("proof: none yet | needs first FAIL in RED");
   });
 
   it("styles the HUD like a test panel when a theme is available", () => {
@@ -180,12 +180,12 @@ describe("buildHudLines", () => {
 
     expect(lines?.[0]).toContain("<accent>*[pi-tdd]*</accent>");
     expect(lines?.[0]).toContain("<success>GREEN</success>");
-    expect(lines).toContain("<accent>*spec*</accent>: <muted>1/2</muted>");
+    expect(lines).toContain("<accent>*spec*</accent>: <muted>2 item(s)</muted>");
     expect(lines).toContain(
-      "  <success>OK</success> <muted>1.</muted> <muted>Generating a slug with a configured length returns that many characters.</muted>"
+      "  <muted>1.</muted> <text>Generating a slug with a configured length returns that many characters.</text>"
     );
     expect(lines).toContain(
-      "  <accent>>></accent> <muted>2.</muted> <text>Generating a slug without config falls back to the default length.</text>"
+      "  <muted>2.</muted> <text>Generating a slug without config falls back to the default length.</text>"
     );
     expect(lines).toContain("<accent>*result*</accent>: <muted>Tests  8 passed (8)</muted>");
     expect(lines).toContain("<accent>*seam*</accent>: <accent>HTTP</accent> <dim>-></dim> <warning>SUPPORT</warning>");

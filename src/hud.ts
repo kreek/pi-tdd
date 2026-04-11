@@ -29,7 +29,7 @@ export function buildHudLines(
 
   if (state.plan.length > 0) {
     lines.push(buildSpecHeader(state, theme));
-    lines.push(...specLines(state.plan, state.planCompleted, theme));
+    lines.push(...specLines(state.plan, theme));
   }
 
   if (lastTest) {
@@ -50,7 +50,7 @@ export function buildHudLines(
       lines.push(buildFilesLine(state.proofCheckpoint.testFiles, theme));
     }
   } else if (state.phase === "RED") {
-    lines.push(buildPendingProofLine(state, theme));
+    lines.push(buildPendingProofLine(theme));
   }
 
   return lines;
@@ -99,8 +99,8 @@ function buildHeader(
   if (state.plan.length > 0) {
     parts.push(
       headerPart(
-        `spec ${state.planCompleted}/${state.plan.length}`,
-        styleMeta(`spec ${state.planCompleted}/${state.plan.length}`, theme)
+        `spec ${state.plan.length}`,
+        styleMeta(`spec ${state.plan.length}`, theme)
       )
     );
   }
@@ -123,8 +123,8 @@ function buildHeader(
 
 function buildSpecHeader(state: Readonly<PhaseState>, theme?: HudTheme): string {
   const title = styleBold("spec", "accent", theme);
-  const progress = styleMeta(`${state.planCompleted}/${state.plan.length}`, theme);
-  return `${title}: ${progress}`;
+  const count = styleMeta(`${state.plan.length} item(s)`, theme);
+  return `${title}: ${count}`;
 }
 
 function buildTestLine(lastTest: PhaseState["recentTests"][number], theme?: HudTheme): string {
@@ -187,32 +187,27 @@ function buildFilesLine(testFiles: string[], theme?: HudTheme): string {
   return `${styleLabel("files", theme)} ${styleMeta(files, theme)}`;
 }
 
-function buildPendingProofLine(state: Readonly<PhaseState>, theme?: HudTheme): string {
-  const currentItem = state.planCompleted < state.plan.length ? `item ${state.planCompleted + 1}` : "current item";
+function buildPendingProofLine(theme?: HudTheme): string {
   return [
     styleBold("proof", "accent", theme) + ":",
     styleText("none yet", theme, "warning"),
     styleDim("|", theme),
-    styleMeta(`${currentItem} needs first FAIL in RED`, theme),
+    styleMeta("needs first FAIL in RED", theme),
   ].join(" ");
 }
 
-function specLines(plan: string[], completed: number, theme?: HudTheme): string[] {
+function specLines(plan: string[], theme?: HudTheme): string[] {
   const visible = plan.slice(0, MAX_SPEC_ITEMS).map((item, index) => {
-    const status = specItemStatus(index, completed);
-    const marker = specItemMarker(status);
     const indexLabel = `${index + 1}.`;
-    const itemText = truncate(item, MAX_ITEM_LENGTH - marker.length - indexLabel.length - 6);
+    const itemText = truncate(item, MAX_ITEM_LENGTH - indexLabel.length - 4);
     if (!theme) {
-      return `  ${marker} ${indexLabel} ${itemText}`;
+      return `  ${indexLabel} ${itemText}`;
     }
     return [
       "  ",
-      theme.fg(specMarkerColor(status), marker),
-      " ",
       theme.fg("muted", indexLabel),
       " ",
-      theme.fg(specTextColor(status), itemText),
+      theme.fg("text", itemText),
     ].join("");
   });
 
@@ -257,49 +252,6 @@ function summarizeTestOutput(output: string): string | null {
 
   const summaryLine = [...lines].reverse().find((line) => /\b(?:passed|failed|errors?|skipped)\b/i.test(line));
   return summaryLine ?? lines[lines.length - 1] ?? null;
-}
-
-function specItemStatus(index: number, completed: number): "done" | "active" | "pending" {
-  if (index < completed) {
-    return "done";
-  }
-  if (index === completed) {
-    return "active";
-  }
-  return "pending";
-}
-
-function specItemMarker(status: "done" | "active" | "pending"): string {
-  switch (status) {
-    case "done":
-      return "OK";
-    case "active":
-      return ">>";
-    default:
-      return "..";
-  }
-}
-
-function specMarkerColor(status: "done" | "active" | "pending"): HudThemeColor {
-  switch (status) {
-    case "done":
-      return "success";
-    case "active":
-      return "accent";
-    default:
-      return "dim";
-  }
-}
-
-function specTextColor(status: "done" | "active" | "pending"): HudThemeColor {
-  switch (status) {
-    case "done":
-      return "muted";
-    case "active":
-      return "text";
-    default:
-      return "dim";
-  }
 }
 
 function styleBrand(theme?: HudTheme): string {

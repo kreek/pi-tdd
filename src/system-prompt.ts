@@ -17,7 +17,6 @@ export function buildSystemPrompt(machine: PhaseStateMachine, config: TDDConfig)
     "",
     ...phaseGuidance(machine),
     ...guidelineLines(machine, config),
-    ...currentSpecItemLines(machine),
     ...proofCheckpointLines(machine),
     ...statusLines(machine),
   ];
@@ -32,19 +31,19 @@ function buildDormantPrompt(config: TDDConfig): string {
     "",
     "Before feature work, check whether the repository already has a runnable test command or test framework.",
     "If the harness is missing, stay dormant and set up the minimal test harness that fits the stack, or ask the user if choosing the harness would be a meaningful tooling decision.",
-    "Stay dormant for repository scaffolding, bootstrap work, and initial test-harness setup. Engage TDD only once the project can host a failing test for the requested behavior.",
+    "Stay dormant for repository scaffolding, bootstrap work, and initial test-harness setup. Start TDD only once the project can host a failing test for the requested behavior.",
     "Do not invent scaffold-only acceptance criteria like 'build passes', 'Vitest is configured', 'folders exist', or 'route shells compile' to justify TDD engagement.",
     "If the request is only schema, migration, database, or setup work, pause and decide whether that is scaffolding for the first real feature rather than its own TDD slice.",
     "Once a runnable test harness exists, call `tdd_start` immediately before continuing any user-visible feature or bug-fix work (phase: SPEC if requirements need clarification, RED if you can write the first failing test immediately).",
     "If you enter SPEC, use `tdd_refine_feature_spec` to persist or revise the checklist before the RED readiness check or RED.",
     "RED entry runs a readiness check on the checklist. If it is empty but the request is clear, Pi may draft the first checklist. If it is close but not quite ready, Pi may sharpen it once inside SPEC. If the behavior is still ambiguous, Pi should ask the user a concise clarification question before RED.",
-    "If the repo already contains scaffolded files or placeholder tests from before TDD was engaged, treat them as baseline and use TDD for the next concrete behavior you change rather than trying to re-TDD the whole scaffold at once.",
+    "If the repo already contains scaffolded files or placeholder tests from before TDD was started, treat them as baseline and use TDD for the next concrete behavior you change rather than trying to re-TDD the whole scaffold at once.",
     "Call `tdd_stop` when leaving feature work or switching back to investigation.",
   ];
 
-  if (config.engageOnTools.length > 0) {
+  if (config.startOnTools.length > 0) {
     lines.push("");
-    lines.push(`TDD will also auto-engage when these tools are called: ${config.engageOnTools.join(", ")}.`);
+    lines.push(`TDD will also auto-start when these tools are called: ${config.startOnTools.join(", ")}.`);
   }
 
   return lines.join("\n");
@@ -97,31 +96,14 @@ function specChecklistLines(machine: PhaseStateMachine): string[] {
 
   return [
     "",
-    "Current feature spec:",
-    ...machine.plan.map((item, index) => `${specMarker(machine, index)} ${index + 1}. ${item}`),
+    "Feature spec:",
+    ...machine.plan.map((item, index) => `${index + 1}. ${item}`),
   ];
-}
-
-function specMarker(machine: PhaseStateMachine, index: number): string {
-  if (index < machine.planCompleted) return "[x]";
-  if (index === machine.planCompleted) return "[>]";
-  return "[ ]";
 }
 
 function guidelineLines(machine: PhaseStateMachine, config: TDDConfig): string[] {
   const guidelines = guidelinesForPhase(machine.phase, config.guidelines);
   return guidelines ? ["", guidelines] : [];
-}
-
-function currentSpecItemLines(machine: PhaseStateMachine): string[] {
-  if (machine.phase === "SPEC" || machine.plan.length === 0) {
-    return [];
-  }
-
-  const current = machine.currentPlanItem();
-  return current
-    ? ["", `Current spec item (${machine.planCompleted + 1}/${machine.plan.length}): ${current}`]
-    : [];
 }
 
 function proofCheckpointLines(machine: PhaseStateMachine): string[] {

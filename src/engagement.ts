@@ -18,10 +18,10 @@ import { isTestCommand } from "./transition.js";
 import type { TDDConfig, TDDPhase } from "./types.js";
 
 const STATUS_KEY = "tdd-gate";
-const ENGAGE_PROMPT_SNIPPET = "Engage TDD enforcement before starting a feature or bug fix.";
-const ENGAGE_PROMPT_GUIDELINES = loadPromptList("tool-engage-guidelines");
-const DISENGAGE_PROMPT_SNIPPET = "Disengage TDD enforcement when leaving feature work.";
-const DISENGAGE_PROMPT_GUIDELINES = loadPromptList("tool-disengage-guidelines");
+const START_PROMPT_SNIPPET = "Start TDD enforcement before beginning a feature or bug fix.";
+const START_PROMPT_GUIDELINES = loadPromptList("tool-start-guidelines");
+const END_PROMPT_SNIPPET = "End TDD enforcement when leaving feature work.";
+const END_PROMPT_GUIDELINES = loadPromptList("tool-end-guidelines");
 const BOOTSTRAP_REASON_PATTERNS = [
   /\bscaffold(?:ing)?\b/i,
   /\bbootstrap(?:ping)?\b/i,
@@ -30,33 +30,33 @@ const BOOTSTRAP_REASON_PATTERNS = [
   /\b(?:set\s+up|setup|install|wire\s+up)\s+(?:the\s+)?(?:test(?:ing)?\s+(?:framework|runner|harness)|vitest|jest|pytest|rspec|mocha|playwright|cypress)\b/i,
 ];
 
-export const ENGAGE_TOOL_NAME = "tdd_start";
-export const DISENGAGE_TOOL_NAME = "tdd_stop";
+export const START_TOOL_NAME = "tdd_start";
+export const END_TOOL_NAME = "tdd_stop";
 
 const CONTROL_TOOL_NAMES = new Set([
-  ENGAGE_TOOL_NAME,
-  DISENGAGE_TOOL_NAME,
+  START_TOOL_NAME,
+  END_TOOL_NAME,
   PREFLIGHT_TOOL_NAME,
   POSTFLIGHT_TOOL_NAME,
   REFINE_FEATURE_SPEC_TOOL_NAME,
 ]);
 
-export interface EngagementDeps {
+export interface LifecycleDeps {
   pi: ExtensionAPI;
   machine: PhaseStateMachine;
   getConfig: () => TDDConfig;
 }
 
-interface EngageParams {
+interface StartParams {
   phase?: string;
   reason: string;
 }
 
-interface DisengageParams {
+interface EndParams {
   reason: string;
 }
 
-interface EngagementDetails {
+interface LifecycleDetails {
   engaged: boolean;
   phase: TDDPhase | null;
   reason: string;
@@ -74,27 +74,22 @@ function normalizePhase(value: string | undefined): TDDPhase | null {
   return null;
 }
 
-function persist(deps: EngagementDeps): void {
+function persist(deps: LifecycleDeps): void {
   persistState(deps.pi, deps.machine);
 }
 
-export interface PostflightOnDisengageOutcome {
+export interface PostflightOnEndOutcome {
   /** Postflight result if it ran, otherwise null. */
   result: PostflightResult | null;
   /** Human-readable summary suitable for surfacing to the agent/user. Null if postflight did not run. */
   summary: string | null;
 }
 
-interface EngagePreflightOutcome {
+interface StartPreflightOutcome {
   allowed: boolean;
   text?: string;
   refinedSpec?: string[];
   refined?: boolean;
-}
-
-interface DisengageGuardOutcome {
-  blocked: boolean;
-  text?: string;
 }
 
 export function isBootstrapWorkReason(reason: string): boolean {
@@ -102,14 +97,14 @@ export function isBootstrapWorkReason(reason: string): boolean {
 }
 
 /**
- * Postflight runs on disengage only when there is real evidence the cycle
- * actually delivered something to review: TDD was engaged, a spec was set,
+ * Postflight runs on end only when there is real evidence the cycle
+ * actually delivered something to review: TDD was started, a spec was set,
  * AND the most recent test run actually passed (with output captured). A
  * `null` lastTestFailed — meaning no test signal has been observed during
- * this engagement — is NOT eligible: postflight against zero evidence would
+ * this session — is NOT eligible: postflight against zero evidence would
  * waste an LLM call and risk false confidence.
  */
-function isEligibleForPostflightOnDisengage(machine: PhaseStateMachine): boolean {
+function isEligibleForPostflightOnEnd(machine: PhaseStateMachine): boolean {
   return (
     machine.enabled &&
     machine.plan.length > 0 &&
@@ -119,18 +114,18 @@ function isEligibleForPostflightOnDisengage(machine: PhaseStateMachine): boolean
 }
 
 /**
- * Shared helper for the three disengage paths (tdd_stop tool, /tdd
- * disengage command, disengageOnTools lifecycle hook). Runs postflight when
+ * Shared helper for the three end paths (tdd_stop tool, /tdd off
+ * command, endOnTools lifecycle hook). Runs postflight when
  * eligible, emits the appropriate UI notification, and returns both the
  * structured result and a formatted summary string. Errors are caught and
- * surfaced as a summary — postflight failure NEVER blocks disengagement.
+ * surfaced as a summary — postflight failure NEVER blocks ending TDD.
  */
-export async function maybeRunPostflightOnDisengage(
+export async function maybeRunPostflightOnEnd(
   machine: PhaseStateMachine,
   ctx: ExtensionContext,
   config: TDDConfig
-): Promise<PostflightOnDisengageOutcome> {
-  if (!isEligibleForPostflightOnDisengage(machine)) {
+): Promise<PostflightOnEndOutcome> {
+  if (!isEligibleForPostflightOnEnd(machine)) {
     return { result: null, summary: null };
   }
 
@@ -155,13 +150,13 @@ export async function maybeRunPostflightOnDisengage(
   }
 }
 
-async function runEngagePreflightGate(
+async function runStartPreflightGate(
   machine: PhaseStateMachine,
   phase: TDDPhase,
   reason: string,
   ctx: ExtensionContext,
   config: TDDConfig
-): Promise<EngagePreflightOutcome> {
+): Promise<StartPreflightOutcome> {
   if (!shouldRunPreflightOnRedEntry(machine.phase, machine.enabled, phase, config)) {
     return { allowed: true };
   }
@@ -205,23 +200,23 @@ async function runEngagePreflightGate(
     }
     return {
       allowed: false,
-      text: `RED readiness failed to run: ${errorReason}. Engagement into RED blocked. Resolve the review model error and retry.`,
+      text: `RED readiness failed to run: ${errorReason}. Entry into RED blocked. Resolve the review model error and retry.`,
     };
   }
 }
 
-export function createEngageTool(
-  deps: EngagementDeps
-): ToolDefinition<ReturnType<typeof Type.Object>, EngagementDetails, EngageParams> {
+export function createStartTool(
+  deps: LifecycleDeps
+): ToolDefinition<ReturnType<typeof Type.Object>, LifecycleDetails, StartParams> {
   return {
-    name: ENGAGE_TOOL_NAME,
-    label: "Engage TDD",
+    name: START_TOOL_NAME,
+    label: "Start TDD",
     description:
-      "Engage the TDD phase gate for feature or bug-fix work. Call this at the start of any work that introduces, modifies, or fixes user-visible behavior. " +
+      "Start the TDD phase gate for feature or bug-fix work. Call this at the start of any work that introduces, modifies, or fixes user-visible behavior. " +
       "First verify the repository can run a meaningful failing test. If the test harness is missing, stay dormant and set it up or ask the user to confirm the framework choice. " +
       "Pass phase='SPEC' when the request still needs to be translated into testable acceptance criteria, or phase='RED' when criteria are already clear enough to write the first failing test. Defaults to SPEC.",
-    promptSnippet: ENGAGE_PROMPT_SNIPPET,
-    promptGuidelines: ENGAGE_PROMPT_GUIDELINES,
+    promptSnippet: START_PROMPT_SNIPPET,
+    promptGuidelines: START_PROMPT_GUIDELINES,
     parameters: Type.Object({
       phase: Type.Optional(
         Type.String({
@@ -236,58 +231,58 @@ export function createEngageTool(
       const config = deps.getConfig();
       const machine = deps.machine;
       if (!config.enabled) {
-        return disabledEngageResponse(machine, ctx);
+        return disabledStartResponse(machine, ctx);
       }
 
       const phase = normalizePhase(params.phase) ?? "SPEC";
       const reason = String(params.reason ?? "feature/bug work");
       if (!machine.enabled && isBootstrapWorkReason(reason)) {
-        return bootstrapEngageResponse(machine, ctx, reason);
+        return bootstrapStartResponse(machine, ctx, reason);
       }
       if (!machine.enabled && !hasRunnableTestHarness(ctx.cwd)) {
-        return missingHarnessEngageResponse(machine, ctx, reason);
+        return missingHarnessStartResponse(machine, ctx, reason);
       }
-      return engageMachine(deps, ctx, phase, reason, `tdd_start: ${reason}`);
+      return startMachine(deps, ctx, phase, reason, `tdd_start: ${reason}`);
     },
   };
 }
 
-export function createDisengageTool(
-  deps: EngagementDeps
-): ToolDefinition<ReturnType<typeof Type.Object>, EngagementDetails, DisengageParams> {
+export function createEndTool(
+  deps: LifecycleDeps
+): ToolDefinition<ReturnType<typeof Type.Object>, LifecycleDetails, EndParams> {
   return {
-    name: DISENGAGE_TOOL_NAME,
-    label: "Disengage TDD",
+    name: END_TOOL_NAME,
+    label: "End TDD",
     description:
-      "Disengage the TDD phase gate when leaving feature or bug-fix work. Call this when switching to investigation, navigation, code review, or any non-feature task so subsequent tool calls are not judged against TDD phase rules.",
-    promptSnippet: DISENGAGE_PROMPT_SNIPPET,
-    promptGuidelines: DISENGAGE_PROMPT_GUIDELINES,
+      "End the TDD phase gate when leaving feature or bug-fix work. Call this when switching to investigation, navigation, code review, or any non-feature task so subsequent tool calls are not judged against TDD phase rules.",
+    promptSnippet: END_PROMPT_SNIPPET,
+    promptGuidelines: END_PROMPT_GUIDELINES,
     parameters: Type.Object({
       reason: Type.String({
-        description: "Brief reason for disengaging (e.g. 'feature complete', 'switching to investigation')",
+        description: "Brief reason for ending (e.g. 'feature complete', 'switching to investigation')",
       }),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx: ExtensionContext) {
       const machine = deps.machine;
       const config = deps.getConfig();
       const reason = String(params.reason ?? "leaving feature work");
-      return disengageMachine(deps, ctx, config, reason);
+      return endMachine(deps, ctx, config, reason);
     },
   };
 }
 
 /**
  * Apply configured lifecycle hooks for an incoming tool call. Returns true if
- * the tool call is itself one of the engagement control tools (so callers can
+ * the tool call is itself one of the lifecycle control tools (so callers can
  * skip the regular gate).
  *
- * Async because the disengage branch runs postflight before flipping the
+ * Async because the end branch runs postflight before flipping the
  * machine off — we want lifecycle hooks (e.g. mcp__manifest__complete_feature)
  * to honour the same proving step as tdd_stop and /tdd off.
  */
 export async function applyLifecycleHooks(
   toolName: string,
-  deps: EngagementDeps,
+  deps: LifecycleDeps,
   ctx: ExtensionContext
 ): Promise<{ isControlTool: boolean; engaged?: boolean; disengaged?: boolean }> {
   if (CONTROL_TOOL_NAMES.has(toolName)) {
@@ -301,12 +296,12 @@ export async function applyLifecycleHooks(
     return { isControlTool: false };
   }
 
-  if (config.engageOnTools.includes(toolName) && !machine.enabled) {
+  if (config.startOnTools.includes(toolName) && !machine.enabled) {
     if (!hasRunnableTestHarness(ctx.cwd)) {
       return { isControlTool: false };
     }
 
-    const result = await engageMachine(
+    const result = await startMachine(
       deps,
       ctx,
       "RED",
@@ -320,15 +315,15 @@ export async function applyLifecycleHooks(
     return { isControlTool: false };
   }
 
-  if (config.disengageOnTools.includes(toolName) && machine.enabled) {
-    const result = await disengageMachine(deps, ctx, config, `via ${toolName}`);
+  if (config.endOnTools.includes(toolName) && machine.enabled) {
+    const result = await endMachine(deps, ctx, config, `via ${toolName}`);
     return { isControlTool: false, disengaged: !result.details.engaged };
   }
 
   return { isControlTool: false };
 }
 
-function disabledEngageResponse(
+function disabledStartResponse(
   machine: PhaseStateMachine,
   ctx: ExtensionContext
 ) {
@@ -344,8 +339,8 @@ function disabledEngageResponse(
   };
 }
 
-async function engageMachine(
-  deps: EngagementDeps,
+async function startMachine(
+  deps: LifecycleDeps,
   ctx: ExtensionContext,
   phase: TDDPhase,
   reason: string,
@@ -355,14 +350,13 @@ async function engageMachine(
   const machine = deps.machine;
   const config = deps.getConfig();
   const wasEnabled = machine.enabled;
-  completePriorSpecItemIfStartingNewCycle(machine, phase);
   machine.setRequestedSeam(classifyRequestedSeam(reason, machine.plan));
-  const preflight = await runEngagePreflightGate(machine, phase, reason, ctx, config);
+  const preflight = await runStartPreflightGate(machine, phase, reason, ctx, config);
   if (preflight.refinedSpec) {
     persist(deps);
   }
   if (!preflight.allowed) {
-    return blockedEngageResponse(machine, reason, preflight.text);
+    return blockedStartResponse(machine, reason, preflight.text);
   }
 
   machine.enabled = true;
@@ -372,20 +366,20 @@ async function engageMachine(
 
   persist(deps);
   ctx.ui.setStatus(STATUS_KEY, machine.bottomBarText());
-  notifyEngaged(ctx, wasEnabled, phase, reason, options?.viaToolName);
+  notifyStarted(ctx, wasEnabled, phase, reason, options?.viaToolName);
 
   return {
     content: [{
       type: "text" as const,
       text: preflight.refined
-        ? `TDD engaged in ${phase} phase after auto-refining the spec. ${reason}`
-        : `TDD engaged in ${phase} phase. ${reason}`,
+        ? `TDD started in ${phase} phase after auto-refining the spec. ${reason}`
+        : `TDD started in ${phase} phase. ${reason}`,
     }],
     details: { engaged: true, phase, reason },
   };
 }
 
-function blockedEngageResponse(
+function blockedStartResponse(
   machine: PhaseStateMachine,
   reason: string,
   text?: string
@@ -396,7 +390,7 @@ function blockedEngageResponse(
   };
 }
 
-function bootstrapEngageResponse(
+function bootstrapStartResponse(
   machine: PhaseStateMachine,
   ctx: ExtensionContext,
   reason: string
@@ -413,13 +407,13 @@ function bootstrapEngageResponse(
     content: [{
       type: "text" as const,
       text:
-        "Stay dormant for project scaffolding, bootstrap, or initial test-harness setup. Engage TDD once the project can host a failing test for the requested behavior.",
+        "Stay dormant for project scaffolding, bootstrap, or initial test-harness setup. Start TDD once the project can host a failing test for the requested behavior.",
     }],
     details: { engaged: false, phase: null, reason },
   };
 }
 
-function missingHarnessEngageResponse(
+function missingHarnessStartResponse(
   machine: PhaseStateMachine,
   ctx: ExtensionContext,
   reason: string
@@ -442,7 +436,7 @@ function missingHarnessEngageResponse(
   };
 }
 
-function notifyEngaged(
+function notifyStarted(
   ctx: ExtensionContext,
   wasEnabled: boolean,
   phase: TDDPhase,
@@ -454,8 +448,8 @@ function notifyEngaged(
   }
 
   const message = viaToolName
-    ? `TDD engaged in ${phase} (via ${viaToolName})`
-    : `${wasEnabled ? "TDD phase set to" : "TDD engaged in"} ${phase}: ${reason}`;
+    ? `TDD started in ${phase} (via ${viaToolName})`
+    : `${wasEnabled ? "TDD phase set to" : "TDD started in"} ${phase}: ${reason}`;
   ctx.ui.notify(message, "info");
 }
 
@@ -467,13 +461,10 @@ function blockedRedReadinessText(
   const lines = [summary];
 
   if (result.refinedSpec) {
-    lines.push("", `Feature spec (${machine.planCompleted}/${machine.plan.length} completed):`);
+    lines.push("", `Feature spec (${machine.plan.length} item(s)):`);
     lines.push(
       "",
-      ...machine.plan.map((item, index) => {
-        const marker = index < machine.planCompleted ? "[x]" : index === machine.planCompleted ? "[>]" : "[ ]";
-        return `${marker} ${index + 1}. ${item}`;
-      })
+      ...machine.plan.map((item, index) => `${index + 1}. ${item}`)
     );
   }
 
@@ -487,77 +478,26 @@ function redReadinessIssueCount(
   return result.final.ok ? 0 : result.final.issues.length;
 }
 
-function completePriorSpecItemIfStartingNewCycle(
-  machine: PhaseStateMachine,
-  targetPhase: TDDPhase
-): void {
-  if (machine.phase !== "REFACTOR" || targetPhase !== "RED") {
-    return;
-  }
-
-  machine.completePlanItem();
-}
-
-function runDisengageGuard(machine: PhaseStateMachine): DisengageGuardOutcome {
-  if (machine.phase !== "RED" || machine.proofCheckpoint || !machine.currentPlanItem()) {
-    return { blocked: false };
-  }
-
-  const currentItemIndex = machine.planCompleted + 1;
-  const currentItem = machine.currentPlanItem();
-  return {
-    blocked: true,
-    text: [
-      `TDD stays engaged. RED has not started cleanly for spec item ${currentItemIndex} yet.`,
-      "",
-      `Current spec item: ${currentItem}`,
-      "",
-      "Run or tighten the proving test until it fails once at the requested seam. A passing test in RED does not establish the proof target for this cycle.",
-      "Use `/tdd off` only if you intentionally want to abandon the cycle and leave TDD."
-    ].join("\n"),
-  };
-}
-
-async function disengageMachine(
-  deps: EngagementDeps,
+async function endMachine(
+  deps: LifecycleDeps,
   ctx: ExtensionContext,
   config: TDDConfig,
   reason: string
 ) {
   const machine = deps.machine;
   const wasEnabled = machine.enabled;
-  const guard = runDisengageGuard(machine);
-  if (guard.blocked) {
-    if (ctx.hasUI) {
-      ctx.ui.notify("TDD stays engaged: RED still needs its first failing proving test", "info");
-    }
-    return {
-      content: [{ type: "text" as const, text: guard.text ?? "TDD stays engaged." }],
-      details: {
-        engaged: true,
-        phase: machine.phase,
-        reason,
-        postflight: null,
-      },
-    };
-  }
-
   const { result: postflightResult, summary: postflightSummary } =
-    await maybeRunPostflightOnDisengage(machine, ctx, config);
-
-  if (postflightResult?.ok) {
-    machine.completePlanItem();
-  }
+    await maybeRunPostflightOnEnd(machine, ctx, config);
 
   machine.enabled = false;
   persist(deps);
   ctx.ui.setStatus(STATUS_KEY, machine.bottomBarText());
   if (ctx.hasUI && wasEnabled) {
-    ctx.ui.notify(`TDD disengaged: ${reason}`, "info");
+    ctx.ui.notify(`TDD ended: ${reason}`, "info");
   }
 
   return {
-    content: [{ type: "text" as const, text: disengageText(reason, postflightSummary) }],
+    content: [{ type: "text" as const, text: endText(reason, postflightSummary) }],
     details: {
       engaged: false,
       phase: null,
@@ -567,8 +507,8 @@ async function disengageMachine(
   };
 }
 
-function disengageText(reason: string, postflightSummary: string | null): string {
+function endText(reason: string, postflightSummary: string | null): string {
   return postflightSummary
-    ? `${postflightSummary}\n\nTDD disengaged. ${reason}`
-    : `TDD disengaged. ${reason}`;
+    ? `${postflightSummary}\n\nTDD ended. ${reason}`
+    : `TDD ended. ${reason}`;
 }

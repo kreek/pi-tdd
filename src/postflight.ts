@@ -2,27 +2,15 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { PhaseState, TDDConfig } from "./types.js";
 import { loadPrompt } from "./prompt-loader.js";
 import { extractJSON, runReview } from "./reviews.js";
-import {
-  classifyProofSeam,
-  classifyRequestedSeam,
-  isBusinessRequestSeam,
-  seamLabel,
-  seamSatisfiesRequest,
-} from "./seams.js";
 
 /**
- * Postflight (proving the cycle) — runs after the TDD cycle is complete with
- * passing tests. Validates that the work delivered against the spec: every
- * acceptance criterion has a corresponding test, every test passes, the
- * implementation actually solves what the spec asked for, and the change fits
- * the surrounding project unless the user request or spec justifies something
- * new.
+ * Postflight — lightweight sanity check after the cycle reaches green.
+ * Checks for gamed tests, code quality issues, and proof drift. Does NOT
+ * try to map spec items to individual tests (it can't see test source).
  *
- * Auto-triggered on every disengage path (tdd_stop tool, /tdd off
- * command, and disengageOnTools lifecycle hooks) when there is real evidence
- * to review — see maybeRunPostflightOnDisengage in engagement.ts. Can also be
- * invoked explicitly via the tdd_postflight tool
- * for mid-flow checkpoints.
+ * Auto-triggered on every end path (tdd_stop tool, /tdd off
+ * command, and endOnTools lifecycle hooks) when there is real evidence
+ * to review — see maybeRunPostflightOnEnd in engagement.ts.
  */
 
 export interface PostflightInput {
@@ -46,14 +34,9 @@ const SYSTEM_PROMPT = loadPrompt("postflight-system");
 
 export function buildPostflightUserPrompt(input: PostflightInput): string {
   const { state, userStory } = input;
-  const requestedSeam = state.requestedSeam ?? classifyRequestedSeam(userStory, state.plan);
-  const proofSeam = state.proofCheckpoint?.seam ?? classifyProofSeam({});
   return [
     ...userStoryLines(userStory),
-    `Requested seam: ${seamLabel(requestedSeam)}`,
-    `Observed proof seam: ${seamLabel(proofSeam)}`,
-    "",
-    ...postflightSpecLines(state),
+    ...specLines(state),
     "",
     ...testEvidenceLines(state),
     "",
@@ -62,7 +45,7 @@ export function buildPostflightUserPrompt(input: PostflightInput): string {
     ...recentTestLines(state),
     "",
     ...diffLines(state),
-    ...postflightResponseLines(),
+    ...responseLines(),
   ].join("\n");
 }
 
@@ -79,11 +62,6 @@ export async function runPostflight(
         { itemIndex: null, message: "Tests are not currently passing." },
       ],
     };
-  }
-
-  const runtimeGaps = seamMismatchGaps(input);
-  if (runtimeGaps) {
-    return runtimeGaps;
   }
 
   const raw = await runReview(
@@ -131,9 +109,7 @@ export function parsePostflightResponse(raw: string): PostflightResult {
       const itemIndex =
         typeof g.itemIndex === "number"
           ? g.itemIndex
-          : g.itemIndex === null
-            ? null
-            : null;
+          : null;
       const message = typeof g.message === "string" ? g.message : "";
       if (!message) return null;
       return { itemIndex, message };
@@ -148,27 +124,11 @@ export function formatPostflightResult(result: PostflightResult): string {
     return `Post-flight OK — ${result.reason}`;
   }
 
-  const lines = [`Post-flight found ${result.gaps.length} gap(s): ${result.reason}`];
+  const lines = [`Post-flight found ${result.gaps.length} issue(s): ${result.reason}`];
   for (const gap of result.gaps) {
-    const prefix = gap.itemIndex === null ? "  •" : `  ${gap.itemIndex}.`;
-    lines.push(`${prefix} ${gap.message}`);
+    lines.push(`  • ${gap.message}`);
   }
   return lines.join("\n");
-}
-
-function truncateFromEnd(value: string, max: number): string {
-  return value.length > max ? `...${value.slice(-max)}` : value;
-}
-
-function formatProofLevel(level: PhaseState["recentTests"][number]["level"]): string {
-  switch (level) {
-    case "unit":
-      return "UNIT";
-    case "integration":
-      return "INTEGRATION";
-    default:
-      return "UNKNOWN";
-  }
 }
 
 function userStoryLines(userStory: string | undefined): string[] {
@@ -179,20 +139,19 @@ function userStoryLines(userStory: string | undefined): string[] {
   return ["User story / request:", userStory.trim(), ""];
 }
 
-function postflightSpecLines(state: PhaseState): string[] {
-  const items = state.plan.length === 0
-    ? ["(no spec checklist was set)"]
-    : state.plan.map((item, index) => `${specMarker(state, index)} ${index + 1}. ${item}`);
+function specLines(state: PhaseState): string[] {
+  if (state.plan.length === 0) {
+    return ["(no spec checklist was set)"];
+  }
 
-  return ["Spec checklist:", ...items];
-}
-
-function specMarker(state: PhaseState, index: number): string {
-  return index < state.planCompleted ? "[x]" : "[ ]";
+  return [
+    "Spec checklist:",
+    ...state.plan.map((item, index) => `${index + 1}. ${item}`),
+  ];
 }
 
 function testEvidenceLines(state: PhaseState): string[] {
-  const lines = [`Cycle count: ${state.cycleCount}`];
+  const lines: string[] = [];
 
   if (state.lastTestFailed !== null) {
     lines.push(`Last test result: ${state.lastTestFailed ? "FAILED" : "PASSED"}`);
@@ -206,71 +165,67 @@ function testEvidenceLines(state: PhaseState): string[] {
 }
 
 function recentTestLines(state: PhaseState): string[] {
-  const items = state.recentTests.length === 0
-    ? ["(no test runs were captured in this cycle)"]
-    : state.recentTests.map(
-        (test, index) =>
-          `${index + 1}. ${test.failed ? "FAIL" : "PASS"} | ${formatProofLevel(test.level)} | ${test.command}`
-      );
+  if (state.recentTests.length === 0) {
+    return [];
+  }
 
   return [
-    "Recent test runs captured in this cycle:",
-    ...items,
-    "",
-    "Use this history to decide whether the completed work was proven at the right level.",
-    "Unit tests are appropriate for isolated logic; integration tests matter when the behavior crosses boundaries, contracts, or wiring.",
+    "Test runs captured in this cycle:",
+    ...state.recentTests.map(
+      (test, index) =>
+        `${index + 1}. ${test.failed ? "FAIL" : "PASS"} | ${test.command}`
+    ),
   ];
 }
 
 function proofCheckpointLines(state: PhaseState): string[] {
   if (!state.proofCheckpoint) {
-    return ["Proof checkpoint for this cycle:", "(no proving checkpoint was captured in RED)"];
+    return [];
   }
 
   const checkpoint = state.proofCheckpoint;
   const lines = [
-    "Proof checkpoint for this cycle:",
-    `Spec item: ${formatCheckpointItem(checkpoint.itemIndex, checkpoint.item)}`,
-    `Proof seam: ${seamLabel(checkpoint.seam)}`,
-    `Captured in RED by: FAIL | ${formatProofLevel(checkpoint.level)} | ${checkpoint.command}`,
+    "Proof checkpoint (first failing test in RED):",
+    `Command: ${checkpoint.command}`,
   ];
 
-  lines.push(...proofFileLines(checkpoint.testFiles));
-  lines.push(...proofDriftLines(state));
+  if (checkpoint.testFiles.length > 0) {
+    lines.push(`Test files: ${checkpoint.testFiles.join(", ")}`);
+  }
+
+  const driftFiles = changedProofFilesAfterCheckpoint(state);
+  if (driftFiles.length > 0) {
+    lines.push(`Proof files changed after checkpoint: ${driftFiles.join(", ")}`);
+  }
+
   return lines;
 }
 
-function formatCheckpointItem(itemIndex: number | null, item: string | null): string {
-  if (itemIndex === null && !item) {
-    return "(no active checklist item)";
-  }
-  if (itemIndex === null) {
-    return item ?? "(no active checklist item)";
-  }
-  return item ? `${itemIndex}. ${item}` : `${itemIndex}. (item text unavailable)`;
-}
-
-function proofFileLines(testFiles: string[]): string[] {
-  if (testFiles.length === 0) {
-    return ["Checkpoint test files: (no edited test files were captured before the proving failure)"];
+function diffLines(state: PhaseState): string[] {
+  if (state.diffs.length === 0) {
+    return [];
   }
 
   return [
-    "Checkpoint test files:",
-    ...testFiles.map((file, index) => `${index + 1}. ${file}`),
+    "Recent mutations during the cycle:",
+    ...state.diffs.map((diff) => `  - ${diff}`),
+    "",
   ];
 }
 
-function proofDriftLines(state: PhaseState): string[] {
-  const driftFiles = changedProofFilesAfterCheckpoint(state);
-  if (driftFiles.length === 0) {
-    return ["Proof drift after checkpoint: none detected"];
-  }
-
+function responseLines(): string[] {
   return [
-    "Proof files changed after checkpoint:",
-    ...driftFiles.map((file, index) => `${index + 1}. ${file}`),
+    "Check for gamed tests, code quality issues, or proof drift.",
+    "Return ok: true unless you see clear evidence of problems.",
+    "",
+    "Respond with one of:",
+    `{"ok": true, "reason": "short summary"}`,
+    `{"ok": false, "reason": "short summary", "gaps": [{"itemIndex": null, "message": "..."}]}`,
   ];
+}
+
+function truncateFromEnd(value: string, max: number): string {
+  return value.length > max ? `...${value.slice(-max)}` : value;
 }
 
 function changedProofFilesAfterCheckpoint(state: PhaseState): string[] {
@@ -280,68 +235,10 @@ function changedProofFilesAfterCheckpoint(state: PhaseState): string[] {
   }
 
   const checkpointFiles = new Set(checkpoint.testFiles);
-  return uniqueStrings(
+  return [...new Set(
     state.mutations
       .slice(checkpoint.mutationCountAtCapture)
       .map((mutation) => mutation.path)
       .filter((path): path is string => !!path && checkpointFiles.has(path))
-  );
-}
-
-function diffLines(state: PhaseState): string[] {
-  if (state.diffs.length === 0) {
-    return [];
-  }
-
-  return [
-    "Recent tool calls / mutations made during the cycle:",
-    ...state.diffs.map((diff) => `  - ${diff}`),
-    "",
-  ];
-}
-
-function postflightResponseLines(): string[] {
-  return [
-    "Decide whether the cycle delivered what the spec asked for.",
-    "",
-    "Respond with one of:",
-    `{"ok": true, "reason": "short explanation of what was delivered"}`,
-    `{"ok": false, "reason": "short overall explanation", "gaps": [{"itemIndex": 1, "message": "..."}, {"itemIndex": null, "message": "general gap"}]}`,
-  ];
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return [...new Set(values)];
-}
-
-function seamMismatchGaps(input: PostflightInput): PostflightResult | null {
-  const requestedSeam = input.state.requestedSeam ?? classifyRequestedSeam(input.userStory, input.state.plan);
-  if (!isBusinessRequestSeam(requestedSeam)) {
-    return null;
-  }
-
-  const proofSeam = input.state.proofCheckpoint?.seam ?? "unknown";
-  if (seamSatisfiesRequest(requestedSeam, proofSeam)) {
-    return null;
-  }
-
-  const missingProofMessage = input.state.proofCheckpoint
-    ? `Requested ${seamLabel(requestedSeam)}, but the proving slice stayed at ${seamLabel(proofSeam)}.`
-    : `Requested ${seamLabel(requestedSeam)}, but no proving checkpoint was captured at that seam.`;
-
-  return {
-    ok: false,
-    reason: "The green test evidence does not prove the requested business seam yet.",
-    gaps: [
-      {
-        itemIndex: input.state.proofCheckpoint?.itemIndex ?? null,
-        message: missingProofMessage,
-      },
-      {
-        itemIndex: null,
-        message:
-          "Add route/page-level proof for this feature before treating helper, schema, service, or migration tests as complete delivery.",
-      },
-    ],
-  };
+  )];
 }

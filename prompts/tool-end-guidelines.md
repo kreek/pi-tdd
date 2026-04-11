@@ -1,0 +1,3 @@
+- Call tdd_stop when feature or bug-fix work is finished, or when switching to investigation, branch navigation, or unrelated tasks.
+- When ending a feature with passing tests and a spec checklist, post-flight runs automatically and reviews whether the work delivered what was asked. Read the post-flight result before treating the feature as truly done.
+- Stay dormant until you start the next feature or bug fix.
