@@ -14,6 +14,13 @@ function makeConfig(overrides: Partial<TDDConfig> = {}): TDDConfig {
     reviewModel: null,
     reviewProvider: null,
     reviewModels: {},
+    autoTransition: true,
+    refactorTransition: "user",
+    allowReadInAllPhases: true,
+    maxDiffsInContext: 5,
+    persistPhase: true,
+    startInSpecMode: false,
+    defaultEngaged: false,
     runPreflightOnRed: true,
     engageOnTools: [],
     disengageOnTools: [],
@@ -94,24 +101,53 @@ describe("runPreflight early-return paths", () => {
       expect(result.issues.length).toBeGreaterThan(0);
     }
   });
+
+  it("blocks helper-first specs for HTTP requests before the LLM runs", async () => {
+    const result = await runPreflight(
+      {
+        userStory: "POST /api/links creates a link and GET /[slug] redirects to it.",
+        spec: ["The SQLite schema stores links with a unique slug column."],
+      },
+      {} as never,
+      makeConfig()
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "The checklist is not aligned with the seam the request actually needs to prove first.",
+      issues: [
+        {
+          itemIndex: null,
+          message:
+            "The checklist never reaches the HTTP/API contract. Start with a user-visible slice at that seam before helper, schema, service, or migration work.",
+        },
+        {
+          itemIndex: 1,
+          message:
+            "Start RED at the HTTP/API contract for this request. This item is internal support work and should be support work, not the proving slice.",
+        },
+      ],
+    });
+  });
 });
 
 describe("buildPreflightUserPrompt", () => {
-  it("asks the reviewer to reason about unit versus integration proof", () => {
+  it("asks the reviewer to reason about proof seam and proof level", () => {
     const prompt = buildPreflightUserPrompt({
       userStory: "save settings through the HTTP API",
       spec: ["persists a valid settings update"],
     });
 
-    expect(prompt).toContain("unit test, an integration test, or both");
-    expect(prompt).toContain("Boundary-heavy behavior should usually be provable with integration-level tests");
+    expect(prompt).toContain("Requested seam: HTTP/API contract");
+    expect(prompt).toContain("Choose the cheapest honest first proof level: unit or integration.");
+    expect(prompt).toContain("RED should start at that outer seam rather than at helper, schema, or service checks.");
   });
 });
 
 describe("formatPreflightResult", () => {
   it("formats a successful result", () => {
     const text = formatPreflightResult({ ok: true, reason: "spec is solid" });
-    expect(text).toContain("Pre-flight OK");
+    expect(text).toContain("RED readiness OK");
     expect(text).toContain("spec is solid");
   });
 
@@ -124,7 +160,7 @@ describe("formatPreflightResult", () => {
         { itemIndex: null, message: "general gap" },
       ],
     });
-    expect(text).toContain("Pre-flight found 2 issue(s)");
+    expect(text).toContain("RED readiness suggests 2 refinement(s)");
     expect(text).toContain("1. needs assertion");
     expect(text).toContain("• general gap");
   });

@@ -4,7 +4,7 @@ A TDD phase gate for [Pi](https://pi.dev), the terminal coding agent. `pi-tdd` k
 
 The extension injects phase-specific instructions into the agent prompt, gates tool calls against the current phase, runs LLM-backed reviews at cycle boundaries, watches test output for pass/fail signals, and persists TDD state across the session.
 
-**Dormant by default.** Fresh sessions are unconstrained. TDD only engages when the agent calls `tdd_engage`, a lifecycle hook fires, or you run an explicit `/tdd` command. Investigation, navigation, code review, and other non-feature work are never gated.
+**Dormant by default.** Fresh sessions are unconstrained. TDD only engages when the agent calls `tdd_start`, a lifecycle hook fires, or you run an explicit `/tdd` command. Investigation, navigation, code review, and other non-feature work are never gated.
 
 ---
 
@@ -71,20 +71,22 @@ If Pi is already running, run `/reload` inside the session to pick up the extens
 
 ### 3. Use it
 
-Ask the agent to work on a feature normally. It will call `tdd_engage` on its own when it recognizes feature or bug-fix work:
+Ask the agent to work on a feature normally. It will call `tdd_start` on its own when it recognizes feature or bug-fix work:
 
 ```text
 Fix the off-by-one error in pagination. The last page shows one fewer item than it should.
 ```
 
-The agent engages TDD, writes a failing test, makes the fix, confirms the test passes, and cleans up. When the work is done, it calls `tdd_disengage`.
+The agent engages TDD, writes a failing test, makes the fix, confirms the test passes, and cleans up. When the work is done, it calls `tdd_stop`.
 
-You can also drive the cycle manually with slash commands:
+For greenfield project scaffolding, repository bootstrap, or initial test-runner setup, TDD should stay dormant until the project can actually host a failing test for the requested behavior. First check whether the scaffold already includes a runnable test command or framework; if not, set up the minimal harness that fits the stack, or ask the user when that tooling choice is not obvious. Do not treat scaffold-only milestones such as "the build passes", "Vitest is configured", or "route shells compile" as TDD acceptance criteria, and do not keep implementing user-visible behavior in dormant mode once the harness exists. If you inherit a repo that already has scaffolded files and a working harness, treat that code as baseline and use TDD for the next concrete behavior you change rather than trying to retroactively re-TDD the whole scaffold.
+
+You can also start TDD manually with the slash command:
 
 ```text
-/tdd spec
-/tdd spec-set "last page shows the correct item count" "boundary: page size evenly divides total" "boundary: page size does not evenly divide total"
-/tdd red
+/tdd add pagination to the audit log
+/tdd on
+/tdd off
 ```
 
 ## What is TDD?
@@ -136,9 +138,11 @@ The result is smaller diffs, better reviewability, and fewer ungrounded changes.
 
 Translate the user's request into testable acceptance criteria. Write tools (`write`, `edit`, `bash`) are blocked to keep focus on planning. Read tools are always allowed.
 
-The agent builds a numbered checklist of spec items. Each item is a concrete, observable behavior that can be proven with a test. The agent also decides whether each item needs unit proof, integration proof, or both.
+The agent builds a numbered checklist of spec items. Each item is a concrete, observable behavior that can be proven with a test. For user-facing requests, the checklist should start at the outer seam that proves the behavior honestly: route/API/page/form requests should begin there instead of drifting into helpers, services, schema, or migrations.
 
-SPEC does not auto-advance. Move to RED with `/tdd red` or by having the agent call `tdd_engage(phase: "RED")`.
+While in SPEC, the agent can persist or revise that checklist with `tdd_refine_feature_spec` without overriding the read-only file gate.
+
+SPEC does not auto-advance. Move to RED by having the agent call `tdd_start(phase: "RED")`.
 
 SPEC is optional. When acceptance criteria are already clear, engage directly into RED.
 
@@ -164,7 +168,7 @@ Improve naming, readability, duplication, and structure without changing behavio
 
 If the proving test needs a material behavior change, start a fresh RED cycle instead of quietly redefining what success means inside REFACTOR.
 
-By default, REFACTOR does not auto-advance. Start the next cycle with `/tdd red` or let the agent call `tdd_engage(phase: "RED")`.
+By default, REFACTOR does not auto-advance. Start the next cycle with `tdd_start(phase: "RED")`.
 
 ### Phase diagram
 
@@ -176,38 +180,46 @@ SPEC --[preflight passes]--> RED --[test fails]--> GREEN --[test passes]--> REFA
 
 ## Slash commands
 
-All commands are available via `/tdd` inside a Pi session.
+Primary slash command forms:
 
 | Command | Description |
 |---------|-------------|
-| `/tdd status` | Show current phase, test status, and cycle count |
-| `/tdd spec` | Engage TDD and switch to SPEC |
-| `/tdd red` | Engage TDD and switch to RED |
-| `/tdd green` | Engage TDD and switch to GREEN |
-| `/tdd refactor` | Engage TDD and switch to REFACTOR |
-| `/tdd spec-set "Criterion 1" "Criterion 2"` | Store the feature spec checklist |
-| `/tdd spec-show` | Show the active spec checklist |
-| `/tdd spec-done` | Mark the current spec item complete |
-| `/tdd preflight` | Run the preflight review on the current spec |
-| `/tdd postflight` | Run the postflight review on the current cycle |
-| `/tdd engage` | Engage TDD without changing phase (alias: `/tdd on`) |
-| `/tdd disengage` | Disengage TDD (alias: `/tdd off`). Runs postflight if eligible |
-| `/tdd history` | Show phase transition history |
+| `/tdd <feature or bug request>` | Engage TDD for that work and enter SPEC when the repo can run tests |
+| `/tdd on` | Engage TDD without supplying a new request |
+| `/tdd off` | Disengage TDD. Runs postflight if eligible |
 
-Phase commands (`/tdd spec`, `/tdd red`, etc.) both engage TDD and switch to that phase, so they work whether TDD is dormant or already active.
+Legacy `/tdd` admin subcommands were removed. Spec refinement, RED readiness, and manual phase control now happen through agent tools rather than extra slash verbs.
 
 ## Agent tools
 
-The extension registers four tools the agent can call directly, so natural-language workflows can proceed without slash-command interruptions:
+The extension registers five tools the agent can call directly, so natural-language workflows can proceed without slash-command interruptions:
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `tdd_engage` | `phase?` (SPEC or RED, default SPEC), `reason` | Engage TDD for feature or bug-fix work. Preflight runs automatically when entering RED |
-| `tdd_disengage` | `reason` | Disengage TDD. Postflight runs automatically when eligible |
+| `tdd_start` | `phase?` (SPEC or RED, default SPEC), `reason` | Engage TDD for feature or bug-fix work. Preflight runs automatically when entering RED |
+| `tdd_stop` | `reason` | Disengage TDD. Postflight runs automatically when eligible |
+| `tdd_refine_feature_spec` | `items[]` | Create or replace the active feature spec checklist while in SPEC |
 | `tdd_preflight` | `userStory?` | Run the preflight review explicitly |
 | `tdd_postflight` | `userStory?` | Run the postflight review explicitly |
 
-The agent is instructed via tool prompt guidelines to call `tdd_engage` at the start of feature work and `tdd_disengage` when leaving it. You generally do not need to call these tools yourself.
+The agent is instructed via tool prompt guidelines to check for a runnable test harness before feature work, set one up when needed, then call `tdd_start` as soon as a meaningful failing test can run. Once engaged in SPEC, it can persist or revise the checklist with `tdd_refine_feature_spec`. Repository scaffolding and initial test-harness setup stay dormant, but user-visible feature work should move into TDD immediately after the harness exists. For HTTP and UI requests, RED readiness and postflight both enforce that proof stays at the business seam instead of stopping at helpers or schema tests. You generally do not need to call these tools yourself.
+
+## Debug run logs
+
+For extension debugging, enable per-run JSONL logging before starting Pi:
+
+```bash
+PI_TDD_DEBUG_RUNS=1 pi
+```
+
+Each session writes a file under `.pi-tdd/runs/<timestamp>.jsonl` in the current project. The log captures prompt injection, tool calls and results, detected test signals, LLM review requests and responses, phase transitions, and end-of-turn state summaries.
+
+Useful commands:
+
+```bash
+ls .pi-tdd/runs
+tail -f .pi-tdd/runs/*.jsonl | jq .
+```
 
 ## Reviews
 
@@ -221,7 +233,7 @@ Runs when transitioning from SPEC into RED (or when engaging directly into RED w
 
 ### Postflight (proving)
 
-Runs on disengage (via `tdd_disengage`, `/tdd disengage`, or a `disengageOnTools` lifecycle hook). Validates that every spec item has a corresponding passing test and that the implementation matches what the spec asked for.
+Runs on disengage (via `tdd_stop`, `/tdd off`, or a `disengageOnTools` lifecycle hook). Validates that every spec item has a corresponding passing test and that the implementation matches what the spec asked for.
 
 Postflight also reviews the cycle's proof checkpoint: which spec item was being proven, what proof level was chosen, and whether the checkpointed proof files changed after RED established the target.
 
@@ -260,7 +272,7 @@ If you cannot explain what user need the feature serves and how to tell when it 
 Engage directly into RED when criteria are clear:
 
 ```text
-/tdd red
+tdd_start(phase: "RED", reason: "add redirect behavior for stored slugs")
 ```
 
 Or let the agent do it:
@@ -269,7 +281,7 @@ Or let the agent do it:
 Add rate limiting to the /api/search endpoint. 100 requests per minute per API key, 429 response with Retry-After header when exceeded.
 ```
 
-The agent will call `tdd_engage(phase: "RED")`, write the failing test, implement, refactor, and disengage when done.
+The agent will call `tdd_start(phase: "RED")`, write the failing test, implement, refactor, and disengage when done.
 
 ## Configuration reference
 
@@ -294,7 +306,6 @@ All fields are optional. Defaults are shown below:
 
     // Review settings
     "runPreflightOnRed": true,          // run preflight before entering RED
-    "temperature": 0,                   // LLM temperature for reviews
     "maxDiffsInContext": 5,             // max diffs sent to postflight
 
     // Default review model (applies to all reviews)
@@ -332,11 +343,11 @@ All fields are optional. Defaults are shown below:
 
 ### Key options explained
 
-**`defaultEngaged`** -- If `true`, every fresh session starts with TDD engaged (legacy always-on behavior). Default `false`: sessions start dormant and only engage on `tdd_engage`, a lifecycle hook, or an explicit `/tdd` phase command.
+**`defaultEngaged`** -- If `true`, every fresh session starts with TDD engaged (legacy always-on behavior). Default `false`: sessions start dormant and only engage on `tdd_start`, a lifecycle hook, or `/tdd on` / `/tdd <feature or bug request>`.
 
 **`startInSpecMode`** -- When TDD engages, begin in SPEC instead of RED. Useful when you want the agent to always translate requests into a spec before writing tests.
 
-**`engageOnTools` / `disengageOnTools`** -- Auto-engage or disengage TDD when specific tools are called. Hook task-management tools into the TDD lifecycle without relying on the agent to remember `tdd_engage`:
+**`engageOnTools` / `disengageOnTools`** -- Auto-engage or disengage TDD when specific tools are called. Hook task-management tools into the TDD lifecycle without relying on the agent to remember `tdd_start`:
 
 ```json
 {
@@ -372,7 +383,6 @@ The codebase accepts these deprecated names for compatibility:
 | `startInPlanMode` | `startInSpecMode` |
 | `judgeProvider` / `judgeModel` | `reviewProvider` / `reviewModel` |
 | `guidelines.plan` | `guidelines.spec` |
-| `/tdd plan` | `/tdd spec` |
 
 ## Coding guidelines are separate
 

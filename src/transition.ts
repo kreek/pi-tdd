@@ -92,6 +92,7 @@ export async function evaluateTransition(
   }
 
   captureRedProofCheckpoint(machine, signals);
+  notifyRedNeedsFailingProof(machine, signals, ctx);
 
   if (!config.autoTransition) {
     return;
@@ -120,7 +121,7 @@ export async function evaluateTransition(
 
   // Deterministic test-signal-driven transitions only. If signals don't yield
   // a clear answer, no transition fires — the agent advances explicitly with
-  // /tdd commands or tdd_engage(phase).
+  // /tdd commands or tdd_start(phase).
   const verdict = fallbackTransition(machine, proofBoundSignals, expectedNextPhase);
   if (!verdict.transition || verdict.transition !== expectedNextPhase) {
     return;
@@ -277,6 +278,25 @@ function captureRedProofCheckpoint(machine: PhaseStateMachine, signals: TestSign
   }
 
   machine.captureProofCheckpoint(failedSignal, inferTestCommandFamily(failedSignal.command));
+}
+
+function notifyRedNeedsFailingProof(
+  machine: PhaseStateMachine,
+  signals: TestSignal[],
+  ctx: ExtensionContext
+): void {
+  if (!ctx.hasUI || machine.phase !== "RED" || machine.proofCheckpoint || signals.length === 0) {
+    return;
+  }
+
+  if (signals.some((signal) => signal.failed)) {
+    return;
+  }
+
+  ctx.ui.notify(
+    "RED still needs its first failing proving test for the current spec item",
+    "info"
+  );
 }
 
 function matchingSignalsForCurrentProof(

@@ -6,7 +6,7 @@ This file provides guidance to coding agents working in this repository.
 
 `pi-tdd` is a Pi extension (Pi = the terminal coding agent at `@mariozechner/pi-coding-agent`). It injects a `SPEC → RED → GREEN → REFACTOR` phase gate into a Pi session, with LLM-backed pre-flight and post-flight reviews at cycle boundaries. It is loaded into Pi as an ESM extension package.
 
-The extension is **dormant by default** — a fresh session does not gate anything until the agent calls `tdd_engage`, the user runs an explicit `/tdd <phase>`, or a configured lifecycle hook (`engageOnTools`) fires.
+The extension is **dormant by default** — a fresh session does not gate anything until the agent calls `tdd_start`, the user runs an explicit `/tdd <phase>`, or a configured lifecycle hook (`engageOnTools`) fires.
 
 ## Commands
 
@@ -30,7 +30,7 @@ Quick mental model:
 
 1. **`PhaseStateMachine` (`src/phase.ts`) is the only mutable state.** Phase, engagement flag, spec checklist, cycle count, last test signal, and a rolling diff buffer all live here. Pure data + logic — no Pi or LLM dependencies, so it is trivially unit-testable. Every other module reads or mutates it.
 
-2. **`src/index.ts:activate(pi)` is the entry point.** It builds the machine, registers four LLM tools (`tdd_engage`, `tdd_disengage`, `tdd_preflight`, `tdd_postflight`), registers the `/tdd` slash command, and wires every Pi event (`session_start`, `session_tree`, `before_agent_start`, `turn_start`, `tool_call`, `tool_result`, `turn_end`) to the right module.
+2. **`src/index.ts:activate(pi)` is the entry point.** It builds the machine, registers four LLM tools (`tdd_start`, `tdd_stop`, `tdd_preflight`, `tdd_postflight`), registers the `/tdd` slash command, and wires every Pi event (`session_start`, `session_tree`, `before_agent_start`, `turn_start`, `tool_call`, `tool_result`, `turn_end`) to the right module.
 
 3. **The system prompt steers the agent during the cycle.** `src/prompt.ts:buildSystemPrompt` is appended to `before_agent_start`. There is no per-tool LLM judge — that was deliberately removed. The deterministic gate in `src/gate.ts` only blocks `write`/`edit`/`bash` in `SPEC` (with override). All other phases are passthrough that just record diffs into the machine for postflight context.
 
@@ -65,7 +65,7 @@ Quick mental model:
 
 ### Backwards-compat aliases worth knowing
 
-The codebase carries deprecated aliases that `loadConfig` translates on the fly: `startInPlanMode → startInSpecMode`, `judgeProvider/judgeModel → reviewProvider/reviewModel`, `guidelines.plan → guidelines.spec`, and the legacy phase value `"PLAN" → "SPEC"`. The `/tdd plan*` slash commands also still resolve to `/tdd spec*`. Internally, the spec checklist is still stored on `PhaseState.plan` / `planCompleted` — the field name is historical.
+The codebase carries deprecated aliases that `loadConfig` translates on the fly: `startInPlanMode → startInSpecMode`, `judgeProvider/judgeModel → reviewProvider/reviewModel`, `guidelines.plan → guidelines.spec`, and the legacy phase value `"PLAN" → "SPEC"`. Internally, the spec checklist is still stored on `PhaseState.plan` / `planCompleted` — the field name is historical.
 
 ## Pi extension API
 

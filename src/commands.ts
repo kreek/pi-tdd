@@ -1,14 +1,31 @@
 import type { ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { TDDConfig, TDDPhase } from "./types.js";
+import type { TDDConfig } from "./types.js";
 import type { PhaseStateMachine } from "./phase.js";
-import { formatPreflightResult, runPreflight, shouldRunPreflightOnRedEntry } from "./preflight.js";
-import { formatPostflightResult, runPostflight } from "./postflight.js";
-import { maybeRunPostflightOnDisengage } from "./engagement.js";
+import { isBootstrapWorkReason, maybeRunPostflightOnDisengage } from "./engagement.js";
+import { classifyRequestedSeam } from "./seams.js";
+import { hasRunnableTestHarness } from "./test-harness.js";
 
-const PHASE_COMMANDS = new Set(["spec", "plan", "red", "green", "refactor"]);
+const LEGACY_COMMANDS = new Set([
+  "status",
+  "spec",
+  "plan",
+  "red",
+  "green",
+  "refactor",
+  "spec-set",
+  "plan-set",
+  "spec-show",
+  "plan-show",
+  "spec-done",
+  "plan-done",
+  "preflight",
+  "postflight",
+  "engage",
+  "disengage",
+  "history",
+]);
 
 type Publish = (message: string) => void;
-type PhaseCommand = "spec" | "plan" | "red" | "green" | "refactor";
 
 export async function handleTddCommand(
   rawArgs: string,
@@ -17,239 +34,37 @@ export async function handleTddCommand(
   publish: Publish,
   config?: TDDConfig
 ): Promise<void> {
-  const args = splitCommandArgs(rawArgs);
-  const sub = (args[0] ?? "status").toLowerCase();
+  const trimmed = rawArgs.trim();
+  const args = splitCommandArgs(trimmed);
+  const sub = (args[0] ?? "").toLowerCase();
   const configDisabled = config?.enabled === false;
 
-  if (isPhaseCommand(sub)) {
-    await handlePhaseCommand(sub, machine, ctx, publish, configDisabled, config);
+  if (trimmed.length === 0) {
+    publish(HELP_TEXT);
     return;
   }
 
-  await handleNonPhaseCommand(sub, args, machine, ctx, publish, configDisabled, config);
-}
-
-async function handleNonPhaseCommand(
-  sub: string,
-  args: string[],
-  machine: PhaseStateMachine,
-  ctx: ExtensionCommandContext,
-  publish: Publish,
-  configDisabled: boolean,
-  config?: TDDConfig
-): Promise<void> {
   switch (sub) {
-    case "status":
-      publish(formatStatus(machine, configDisabled));
-      return;
-
-    case "spec-set":
-    case "plan-set":
-      handleSpecSetCommand(args.slice(1).filter(Boolean), machine, ctx, publish);
-      return;
-
-    case "spec-show":
-    case "plan-show":
-      publish(formatSpec(machine));
-      return;
-
-    case "spec-done":
-    case "plan-done":
-      handleSpecDoneCommand(machine, publish);
-      return;
-
     case "off":
-    case "disengage":
       await handleDisengageCommand(machine, ctx, publish, config);
       return;
 
     case "on":
-    case "engage":
-      handleEngageCommand(machine, ctx, publish, configDisabled);
-      return;
-
-    case "preflight":
-      await handlePreflightCommand(args, machine, ctx, publish, configDisabled, config);
-      return;
-
-    case "postflight":
-      await handlePostflightCommand(args, machine, ctx, publish, configDisabled, config);
-      return;
-
-    case "history":
-      publish(formatHistory(machine));
+      handleOnCommand(machine, ctx, publish, configDisabled);
       return;
 
     default:
-      publish(HELP_TEXT);
+      if (LEGACY_COMMANDS.has(sub)) {
+        publish(formatLegacyCommandMessage(sub));
+        if (ctx.hasUI) {
+          ctx.ui.notify("Legacy /tdd admin subcommands were removed", "info");
+        }
+        return;
+      }
+
+      await handleRequestCommand(trimmed, machine, ctx, publish, configDisabled);
+      return;
   }
-}
-
-function isPhaseCommand(sub: string): sub is PhaseCommand {
-  return PHASE_COMMANDS.has(sub);
-}
-
-async function handlePhaseCommand(
-  sub: PhaseCommand,
-  machine: PhaseStateMachine,
-  ctx: ExtensionCommandContext,
-  publish: Publish,
-  configDisabled: boolean,
-  config?: TDDConfig
-): Promise<void> {
-  if (configDisabled) {
-    publishDisabled(machine, ctx, publish);
-    return;
-  }
-
-  const target = normalizePhaseCommand(sub);
-  if (!(await runPhaseChangePreflight(machine, target, ctx, publish, config))) {
-    return;
-  }
-
-  completePriorSpecItemIfStartingNewCycle(machine, target);
-  const wasDormant = !machine.enabled;
-  machine.enabled = true;
-
-  const ok = machine.transitionTo(
-    target,
-    "User forced via /tdd command",
-    target !== machine.nextPhase()
-  );
-  ctx.ui.setStatus("tdd-gate", machine.bottomBarText());
-  publishPhaseCommandResult(ok, wasDormant, target, ctx, publish);
-}
-
-function normalizePhaseCommand(sub: PhaseCommand): TDDPhase {
-  return sub === "plan" ? "SPEC" : sub.toUpperCase() as TDDPhase;
-}
-
-async function runPhaseChangePreflight(
-  machine: PhaseStateMachine,
-  target: TDDPhase,
-  ctx: ExtensionCommandContext,
-  publish: Publish,
-  config?: TDDConfig
-): Promise<boolean> {
-  if (!config) {
-    return true;
-  }
-  if (!shouldRunPreflightOnRedEntry(machine.phase, machine.enabled, target, config)) {
-    return true;
-  }
-
-  try {
-    const result = await runPreflight({ spec: machine.plan }, ctx, config);
-    if (!result.ok) {
-      publish(formatPreflightResult(result));
-      ctx.ui.notify(
-        `Pre-flight blocked entry into RED: ${result.issues.length} issue(s)`,
-        "warning"
-      );
-      return false;
-    }
-    if (ctx.hasUI) {
-      ctx.ui.notify("Pre-flight: OK", "info");
-    }
-    return true;
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    publish(`Pre-flight gate failed to run: ${reason}`);
-    ctx.ui.notify(`Pre-flight gate failed: ${reason}`, "warning");
-    return false;
-  }
-}
-
-async function handlePreflightCommand(
-  args: string[],
-  machine: PhaseStateMachine,
-  ctx: ExtensionCommandContext,
-  publish: Publish,
-  configDisabled: boolean,
-  config?: TDDConfig
-): Promise<void> {
-  if (configDisabled) {
-    publishDisabled(machine, ctx, publish);
-    return;
-  }
-  if (!config) {
-    publish("Pre-flight requires the full TDD config to access the review model.");
-    return;
-  }
-
-  const userStory = args.slice(1).join(" ").trim() || undefined;
-  try {
-    const result = await runPreflight({ spec: machine.plan, userStory }, ctx, config);
-    publish(formatPreflightResult(result));
-    ctx.ui.notify(
-      result.ok ? "TDD pre-flight: OK" : `TDD pre-flight: ${result.issues.length} issue(s)`,
-      result.ok ? "info" : "warning"
-    );
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    publish(`Pre-flight failed: ${reason}`);
-    ctx.ui.notify(`Pre-flight failed: ${reason}`, "warning");
-  }
-}
-
-async function handlePostflightCommand(
-  args: string[],
-  machine: PhaseStateMachine,
-  ctx: ExtensionCommandContext,
-  publish: Publish,
-  configDisabled: boolean,
-  config?: TDDConfig
-): Promise<void> {
-  if (configDisabled) {
-    publishDisabled(machine, ctx, publish);
-    return;
-  }
-  if (!config) {
-    publish("Post-flight requires the full TDD config to access the review model.");
-    return;
-  }
-
-  const userStory = args.slice(1).join(" ").trim() || undefined;
-  try {
-    const result = await runPostflight({ state: machine.getSnapshot(), userStory }, ctx, config);
-    publish(formatPostflightResult(result));
-    ctx.ui.notify(
-      result.ok ? "TDD post-flight: OK" : `TDD post-flight: ${result.gaps.length} gap(s)`,
-      result.ok ? "info" : "warning"
-    );
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    publish(`Post-flight failed: ${reason}`);
-    ctx.ui.notify(`Post-flight failed: ${reason}`, "warning");
-  }
-}
-
-function formatStatus(machine: PhaseStateMachine, configDisabled = false): string {
-  const snap = machine.getSnapshot();
-  const lines = [
-    configDisabled ? "[TDD: disabled]" : machine.statusText(),
-    "",
-    `Phase:      ${snap.phase}`,
-    `Enabled:    ${configDisabled ? false : snap.enabled}`,
-    `Cycle:      ${snap.cycleCount}`,
-    `Test state: ${snap.lastTestFailed === null ? "unknown" : snap.lastTestFailed ? "failing" : "passing"}`,
-    `Diffs:      ${snap.diffs.length} accumulated`,
-  ];
-
-  if (configDisabled) {
-    lines.push("Mode:       disabled by configuration");
-  }
-
-  if (snap.plan.length > 0) {
-    lines.push(`Spec:       ${snap.planCompleted}/${snap.plan.length} completed`);
-  }
-  if (snap.proofCheckpoint) {
-    const level = snap.proofCheckpoint.level === "unknown" ? "unknown" : snap.proofCheckpoint.level;
-    const item = snap.proofCheckpoint.itemIndex === null ? "no active item" : `item ${snap.proofCheckpoint.itemIndex}`;
-    lines.push(`Proof:      ${item} | ${level} | ${snap.proofCheckpoint.command}`);
-  }
-
-  return lines.join("\n");
 }
 
 function publishDisabled(
@@ -263,29 +78,71 @@ function publishDisabled(
   publish("TDD is disabled by configuration.");
 }
 
-function handleSpecSetCommand(
-  items: string[],
+function formatLegacyCommandMessage(command: string): string {
+  if (command === "engage") {
+    return "Legacy `/tdd engage` was removed. Use `/tdd on` to engage TDD, or `/tdd <feature or bug request>` to start a concrete slice of work.";
+  }
+
+  if (command === "disengage") {
+    return "Legacy `/tdd disengage` was removed. Use `/tdd off` to disengage TDD.";
+  }
+
+  if (command === "status") {
+    return "Legacy `/tdd status` was removed. Use the TDD HUD for live state, or use `/tdd on`, `/tdd off`, or `/tdd <feature or bug request>`.";
+  }
+
+  return `Legacy \`/tdd ${command}\` was removed. Use \`/tdd <feature or bug request>\`, \`/tdd on\`, or \`/tdd off\`. Spec refinement and phase control now happen through agent tools such as \`tdd_refine_feature_spec\`, \`tdd_preflight\`, \`tdd_start\`, and \`tdd_postflight\`.`;
+}
+
+async function handleRequestCommand(
+  request: string,
   machine: PhaseStateMachine,
   ctx: ExtensionCommandContext,
-  publish: Publish
-): void {
-  if (items.length === 0) {
-    publish('Usage: /tdd spec-set "Criterion 1" "Criterion 2" ...');
+  publish: Publish,
+  configDisabled: boolean
+): Promise<void> {
+  if (configDisabled) {
+    publishDisabled(machine, ctx, publish);
     return;
   }
 
-  machine.setPlan(items);
-  ctx.ui.notify(`Feature spec set with ${items.length} item(s)`, "info");
-  publish(formatSpec(machine));
-}
+  if (isBootstrapWorkReason(request)) {
+    ctx.ui.setStatus("tdd-gate", machine.bottomBarText());
+    ctx.ui.notify(
+      "TDD stays dormant during project scaffolding and initial test-harness setup",
+      "info"
+    );
+    publish(
+      "TDD stays dormant for scaffolding, bootstrap, or initial test-harness setup. Once the project can host a failing test for the requested behavior, run `/tdd <feature or bug request>` again."
+    );
+    return;
+  }
 
-function handleSpecDoneCommand(machine: PhaseStateMachine, publish: Publish): void {
-  machine.completePlanItem();
-  const next = machine.currentPlanItem();
+  if (!hasRunnableTestHarness(ctx.cwd)) {
+    ctx.ui.setStatus("tdd-gate", machine.bottomBarText());
+    ctx.ui.notify(
+      "TDD stays dormant until the repository has a runnable test harness",
+      "info"
+    );
+    publish(
+      "TDD requires a runnable test harness before feature work can enter the loop. Set up the minimal harness that fits the stack, or confirm the tooling choice with the user, then run `/tdd <feature or bug request>` again."
+    );
+    return;
+  }
+
+  const wasDormant = !machine.enabled;
+  machine.setRequestedSeam(classifyRequestedSeam(request, machine.plan));
+  machine.enabled = true;
+  const transitioned = machine.phase !== "SPEC"
+    ? machine.transitionTo("SPEC", "User started TDD for a feature or bug request", machine.phase !== machine.nextPhase())
+    : false;
+  ctx.ui.setStatus("tdd-gate", machine.bottomBarText());
+  ctx.ui.notify(
+    wasDormant || transitioned ? "TDD engaged in SPEC" : "TDD request captured in SPEC",
+    "info"
+  );
   publish(
-    next
-      ? `Spec item completed. Next: ${next} (${machine.planCompleted}/${machine.plan.length})`
-      : `All ${machine.plan.length} spec items completed.`
+    `TDD engaged for: ${request}\nPhase: SPEC.\nRefine the checklist, then enter RED when the first failing test is clear.`
   );
 }
 
@@ -312,7 +169,7 @@ async function handleDisengageCommand(
   publish("TDD disengaged. Investigation and navigation are unconstrained.");
 }
 
-function handleEngageCommand(
+function handleOnCommand(
   machine: PhaseStateMachine,
   ctx: ExtensionCommandContext,
   publish: Publish,
@@ -327,69 +184,6 @@ function handleEngageCommand(
   ctx.ui.setStatus("tdd-gate", machine.bottomBarText());
   ctx.ui.notify("TDD engaged", "info");
   publish(`TDD engaged. Phase: ${machine.phase}.`);
-}
-
-function completePriorSpecItemIfStartingNewCycle(
-  machine: PhaseStateMachine,
-  target: TDDPhase
-): void {
-  if (machine.phase === "REFACTOR" && target === "RED" && machine.plan.length > 0) {
-    machine.completePlanItem();
-  }
-}
-
-function publishPhaseCommandResult(
-  transitioned: boolean,
-  wasDormant: boolean,
-  target: TDDPhase,
-  ctx: ExtensionCommandContext,
-  publish: Publish
-): void {
-  if (transitioned) {
-    ctx.ui.notify(
-      wasDormant ? `TDD engaged in ${target}` : `TDD phase -> ${target}`,
-      "info"
-    );
-    publish(wasDormant ? `TDD engaged. Phase set to ${target}.` : `Phase set to ${target}.`);
-    return;
-  }
-
-  if (wasDormant) {
-    ctx.ui.notify(`TDD engaged in ${target}`, "info");
-    publish(`TDD engaged. Already in ${target} phase.`);
-    return;
-  }
-
-  publish(`Already in ${target} phase.`);
-}
-
-function formatSpec(machine: PhaseStateMachine): string {
-  const snap = machine.getSnapshot();
-  if (snap.plan.length === 0) {
-    return 'No feature spec set. Use /tdd spec-set "Criterion 1" "Criterion 2" ... to create one.';
-  }
-
-  const lines = [`Feature spec (${snap.planCompleted}/${snap.plan.length} completed):`, ""];
-  for (let i = 0; i < snap.plan.length; i++) {
-    const marker = i < snap.planCompleted ? "[x]" : i === snap.planCompleted ? "[>]" : "[ ]";
-    lines.push(`${marker} ${i + 1}. ${snap.plan[i]}`);
-  }
-  return lines.join("\n");
-}
-
-function formatHistory(machine: PhaseStateMachine): string {
-  const history = machine.getHistory();
-  if (history.length === 0) {
-    return "No phase transitions recorded yet.";
-  }
-
-  const lines = ["Phase transition history:", ""];
-  for (const entry of history) {
-    const ts = new Date(entry.timestamp).toLocaleTimeString();
-    const override = entry.override ? " [OVERRIDE]" : "";
-    lines.push(`${ts} ${entry.from} -> ${entry.to}${override}: ${entry.reason}`);
-  }
-  return lines.join("\n");
 }
 
 export function splitCommandArgs(raw: string): string[] {
@@ -442,18 +236,12 @@ export function splitCommandArgs(raw: string): string[] {
   return args;
 }
 
-const HELP_TEXT = `Usage: /tdd [subcommand]
+const HELP_TEXT = `Usage: /tdd on | off | <feature-or-bug request>
 
-/tdd status
-/tdd spec        (engages and switches to SPEC)
-/tdd red         (engages and switches to RED)
-/tdd green       (engages and switches to GREEN)
-/tdd refactor    (engages and switches to REFACTOR)
-/tdd spec-set "Criterion 1" "Criterion 2"
-/tdd spec-show
-/tdd spec-done
-/tdd preflight   (priming: validate the spec before starting RED)
-/tdd postflight  (proving: validate a completed cycle once tests are green)
-/tdd engage      (alias /tdd on)
-/tdd disengage   (alias /tdd off)
-/tdd history`;
+Examples:
+/tdd fix slug validation when the custom slug is reserved
+/tdd add pagination to the audit log
+/tdd on
+/tdd off
+
+Legacy /tdd admin subcommands were removed. Use agent tools for spec refinement, RED readiness, and manual phase control.`;

@@ -45,6 +45,7 @@ describe("PhaseStateMachine", () => {
     expect(machine.getSnapshot().proofCheckpoint).toEqual({
       itemIndex: 1,
       item: "persist settings",
+      seam: "unknown",
       command: "npm run test:unit",
       commandFamily: "npm:test",
       level: "unit",
@@ -60,5 +61,32 @@ describe("PhaseStateMachine", () => {
     expect(machine.getSnapshot().recentTests).toEqual([]);
     expect(machine.getSnapshot().mutations).toEqual([]);
     expect(machine.getSnapshot().proofCheckpoint).toBeNull();
+  });
+
+  it("keeps checkpoint test files in sync when the proving test file is renamed", () => {
+    const machine = new PhaseStateMachine({
+      phase: "REFACTOR",
+      plan: ["persist settings"],
+      proofCheckpoint: {
+        itemIndex: 1,
+        item: "persist settings",
+        seam: "business_http",
+        command: "npm run test:integration -- tests/http/settings.spec.ts",
+        commandFamily: "npm:test:integration",
+        level: "integration",
+        testFiles: ["tests/http/settings.spec.ts"],
+        mutationCountAtCapture: 1,
+      },
+    });
+
+    machine.recordMutation(
+      "bash",
+      undefined,
+      "mv tests/http/settings.spec.ts tests/http/api-settings.spec.ts"
+    );
+
+    expect(machine.getSnapshot().proofCheckpoint?.testFiles).toEqual([
+      "tests/http/api-settings.spec.ts",
+    ]);
   });
 });

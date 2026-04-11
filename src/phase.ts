@@ -1,4 +1,5 @@
 import type {
+  BehaviorSeam,
   MutationRecord,
   PhaseState,
   PhaseTransitionLog,
@@ -7,6 +8,7 @@ import type {
   TestProofLevel,
   TestSignal,
 } from "./types.js";
+import { classifyProofSeam } from "./seams.js";
 
 const CYCLE_ORDER: TDDPhase[] = ["RED", "GREEN", "REFACTOR"];
 const MAX_RECENT_TESTS = 6;
@@ -30,6 +32,7 @@ export class PhaseStateMachine {
       enabled: initial?.enabled ?? false,
       plan: initial?.plan ?? [],
       planCompleted: initial?.planCompleted ?? 0,
+      requestedSeam: initial?.requestedSeam ?? null,
     };
   }
 
@@ -77,6 +80,10 @@ export class PhaseStateMachine {
     return this.state.planCompleted;
   }
 
+  get requestedSeam(): BehaviorSeam | null {
+    return this.state.requestedSeam;
+  }
+
   getSnapshot(): Readonly<PhaseState> {
     return {
       ...this.state,
@@ -101,6 +108,7 @@ export class PhaseStateMachine {
       enabled: state.enabled,
       plan: [...state.plan],
       planCompleted: state.planCompleted,
+      requestedSeam: state.requestedSeam,
     };
   }
 
@@ -150,6 +158,10 @@ export class PhaseStateMachine {
     this.state.proofCheckpoint = null;
   }
 
+  setRequestedSeam(seam: BehaviorSeam | null): void {
+    this.state.requestedSeam = seam;
+  }
+
   completePlanItem(): void {
     if (this.state.planCompleted < this.state.plan.length) {
       this.state.planCompleted++;
@@ -181,6 +193,7 @@ export class PhaseStateMachine {
     if (this.state.mutations.length > MAX_RECENT_MUTATIONS) {
       this.state.mutations = this.state.mutations.slice(-MAX_RECENT_MUTATIONS);
     }
+    this.syncProofCheckpointTestFiles(command);
   }
 
   recordTestResult(
@@ -202,13 +215,19 @@ export class PhaseStateMachine {
       return;
     }
 
+    const testFiles = testMutationPaths(this.state.mutations);
     this.state.proofCheckpoint = {
       itemIndex: currentPlanItemIndex(this.state),
       item: this.currentPlanItem(),
+      seam: classifyProofSeam({
+        item: this.currentPlanItem(),
+        testFiles,
+        command: signal.command,
+      }),
       command: signal.command,
       commandFamily,
       level: signal.level,
-      testFiles: testMutationPaths(this.state.mutations),
+      testFiles,
       mutationCountAtCapture: this.state.mutations.length,
     };
   }
@@ -216,7 +235,7 @@ export class PhaseStateMachine {
   allowedActions(): string {
     switch (this.state.phase) {
       case "SPEC":
-        return "Read code. Clarify the user's request. Translate it into user-visible behavior, acceptance criteria, and testable specifications. Decide whether each item needs unit proof, integration proof, or both. Discuss the spec.";
+        return "Read code. Clarify the user's request. Translate it into user-visible behavior, acceptance criteria, and testable specifications. Start from the outermost seam that proves the request honestly, and choose one cheapest proof level unless the boundary itself is the risk. Discuss the spec.";
       case "RED":
         return "Write or modify unit or integration tests. Run tests to confirm failure. Read any file.";
       case "GREEN":
@@ -271,6 +290,27 @@ export class PhaseStateMachine {
     this.state.mutations = [];
     this.state.proofCheckpoint = null;
   }
+
+  private syncProofCheckpointTestFiles(command?: string): void {
+    if (!this.state.proofCheckpoint || !command) {
+      return;
+    }
+
+    const renames = extractMvRenames(command);
+    if (renames.length === 0) {
+      return;
+    }
+
+    this.state.proofCheckpoint.testFiles = this.state.proofCheckpoint.testFiles.map((file) => {
+      let next = file;
+      for (const [from, to] of renames) {
+        if (next === from) {
+          next = to;
+        }
+      }
+      return next;
+    });
+  }
 }
 
 function currentPlanItemIndex(state: PhaseState): number | null {
@@ -320,4 +360,38 @@ function cloneProofCheckpoint(checkpoint: ProofCheckpoint | null): ProofCheckpoi
         testFiles: [...checkpoint.testFiles],
       }
     : null;
+}
+
+function extractMvRenames(command: string): Array<[string, string]> {
+  return command
+    .split(/&&|\|\||;|\|/)
+    .map((segment) => segment.trim())
+    .flatMap(parseMvRename);
+}
+
+function parseMvRename(segment: string): Array<[string, string]> {
+  const tokens = segment.match(/'[^']*'|"[^"]*"|\S+/g) ?? [];
+  const [commandToken] = tokens;
+  if (tokens.length < 3 || !commandToken || stripQuotes(commandToken) !== "mv") {
+    return [];
+  }
+
+  const args = tokens.slice(1).map(stripQuotes);
+  const paths = args.filter((arg) => !arg.startsWith("-"));
+  if (paths.length !== 2) {
+    return [];
+  }
+
+  return [[paths[0], paths[1]]];
+}
+
+function stripQuotes(token: string): string {
+  if (
+    (token.startsWith("'") && token.endsWith("'")) ||
+    (token.startsWith("\"") && token.endsWith("\""))
+  ) {
+    return token.slice(1, -1);
+  }
+
+  return token;
 }

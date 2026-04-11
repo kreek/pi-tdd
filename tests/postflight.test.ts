@@ -15,6 +15,13 @@ function makeConfig(overrides: Partial<TDDConfig> = {}): TDDConfig {
     reviewModel: null,
     reviewProvider: null,
     reviewModels: {},
+    autoTransition: true,
+    refactorTransition: "user",
+    allowReadInAllPhases: true,
+    maxDiffsInContext: 5,
+    persistPhase: true,
+    startInSpecMode: false,
+    defaultEngaged: false,
     runPreflightOnRed: true,
     engageOnTools: [],
     disengageOnTools: [],
@@ -77,6 +84,47 @@ describe("runPostflight early-return paths", () => {
       expect(result.gaps.length).toBeGreaterThan(0);
     }
   });
+
+  it("fails when business requests only have helper-level proof", async () => {
+    const machine = new PhaseStateMachine({
+      enabled: true,
+      phase: "REFACTOR",
+      plan: ["POST /api/links returns 201 and a short URL."],
+      requestedSeam: "business_http",
+      proofCheckpoint: {
+        itemIndex: 1,
+        item: "POST /api/links returns 201 and a short URL.",
+        seam: "internal_support",
+        command: "npm run test:unit",
+        commandFamily: "npm:test:unit",
+        level: "unit",
+        testFiles: ["src/lib/server/link.service.spec.ts"],
+        mutationCountAtCapture: 1,
+      },
+    });
+
+    const result = await runPostflight(
+      { state: machine.getSnapshot(), userStory: "POST /api/links creates short links." },
+      {} as never,
+      makeConfig()
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "The green test evidence does not prove the requested business seam yet.",
+      gaps: [
+        {
+          itemIndex: 1,
+          message: "Requested HTTP/API contract, but the proving slice stayed at internal support work.",
+        },
+        {
+          itemIndex: null,
+          message:
+            "Add route/page-level proof for this feature before treating helper, schema, service, or migration tests as complete delivery.",
+        },
+      ],
+    });
+  });
 });
 
 describe("buildPostflightUserPrompt", () => {
@@ -101,7 +149,10 @@ describe("buildPostflightUserPrompt", () => {
     });
 
     expect(prompt).toContain("Proof checkpoint for this cycle:");
+    expect(prompt).toContain("Requested seam: HTTP/API contract");
+    expect(prompt).toContain("Observed proof seam: HTTP/API contract");
     expect(prompt).toContain("Spec item: 1. persist settings through the HTTP API");
+    expect(prompt).toContain("Proof seam: HTTP/API contract");
     expect(prompt).toContain("Captured in RED by: FAIL | INTEGRATION | npm run test:integration");
     expect(prompt).toContain("Checkpoint test files:");
     expect(prompt).toContain("tests/http/settings.integration.test.ts");

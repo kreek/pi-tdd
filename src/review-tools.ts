@@ -4,13 +4,18 @@ import type {
   ToolDefinition,
 } from "@mariozechner/pi-coding-agent";
 import type { EngagementDeps } from "./engagement.js";
-import { formatPreflightResult, runPreflight, type PreflightResult } from "./preflight.js";
+import type { PreflightResult } from "./preflight.js";
 import { formatPostflightResult, runPostflight, type PostflightResult } from "./postflight.js";
+import { persistState } from "./persistence.js";
 import { loadPromptList } from "./prompt-loader.js";
+import { formatRedReadinessResult, runRedReadinessCheck } from "./red-readiness.js";
+import { classifyRequestedSeam } from "./seams.js";
+import { maybeEngageSpecSession, type SpecSessionOutcome } from "./spec-session.js";
+import { formatSpec } from "./spec.js";
 
 export const PREFLIGHT_TOOL_NAME = "tdd_preflight";
 export const POSTFLIGHT_TOOL_NAME = "tdd_postflight";
-const PREFLIGHT_PROMPT_SNIPPET = "Inspect the pre-flight verdict on the current spec.";
+const PREFLIGHT_PROMPT_SNIPPET = "Inspect or sharpen RED readiness for the current spec.";
 const PREFLIGHT_PROMPT_GUIDELINES = loadPromptList("tool-preflight-guidelines");
 const POSTFLIGHT_PROMPT_SNIPPET = "Inspect the post-flight verdict on the current cycle.";
 const POSTFLIGHT_PROMPT_GUIDELINES = loadPromptList("tool-postflight-guidelines");
@@ -28,9 +33,9 @@ export function createPreflightTool(
 ): ToolDefinition<ReturnType<typeof Type.Object>, PreflightResult, PreflightParams> {
   return {
     name: PREFLIGHT_TOOL_NAME,
-    label: "TDD Pre-flight",
+    label: "TDD RED Readiness",
     description:
-      "Run the TDD pre-flight check (priming the cycle). Validates the spec checklist is solid enough to drive a clean RED → GREEN → REFACTOR cycle BEFORE any tests or implementation are written. Call this when leaving SPEC for RED if you want to verify the spec is testable, atomic, covers the user story, and points toward the right proof level such as unit or integration tests.",
+      "Run the TDD RED readiness check. Reviews the spec checklist before RED, sharpens it when it is close but not quite ready, and reports whether the cycle can start cleanly.",
     promptSnippet: PREFLIGHT_PROMPT_SNIPPET,
     promptGuidelines: PREFLIGHT_PROMPT_GUIDELINES,
     parameters: Type.Object({
@@ -43,27 +48,46 @@ export function createPreflightTool(
     async execute(_toolCallId, params, _signal, _onUpdate, ctx: ExtensionContext) {
       const config = deps.getConfig();
       const machine = deps.machine;
+      const specSession = maybeEngageSpecSession(machine, ctx);
 
-      const result = await runPreflight(
+      const result = await runRedReadinessCheck(
         {
           spec: machine.plan,
           userStory: params.userStory,
+          planCompleted: machine.planCompleted,
         },
         ctx,
         config
       );
 
-      const summary = formatPreflightResult(result);
+      if (result.refinedSpec) {
+        machine.setPlan(result.refinedSpec);
+      }
+      machine.setRequestedSeam(classifyRequestedSeam(params.userStory, machine.plan));
+      if (specSession.engaged || result.refinedSpec || machine.requestedSeam) {
+        persistState(deps.pi, machine);
+      }
+      ctx.ui.setStatus("tdd-gate", machine.bottomBarText());
+
+      const summary = readinessSummary(result, machine, specSession);
       if (ctx.hasUI) {
         ctx.ui.notify(
-          result.ok ? "TDD pre-flight: OK" : `TDD pre-flight: ${result.issues.length} issue(s)`,
-          result.ok ? "info" : "warning"
+          result.ok
+            ? result.refined
+              ? "RED readiness refined the spec and it is ready."
+              : "RED readiness: OK"
+            : specSession.waitingForHarness
+              ? `RED readiness suggests ${redReadinessIssueCount(result)} refinement(s); TDD stays dormant until the repo can run tests`
+            : result.refined
+              ? "RED readiness refined the spec, but it still needs clarification."
+              : `RED readiness suggests ${redReadinessIssueCount(result)} refinement(s)`,
+          "info"
         );
       }
 
       return {
         content: [{ type: "text", text: summary }],
-        details: result,
+        details: result.final,
       };
     },
   };
@@ -113,4 +137,38 @@ export function createPostflightTool(
       };
     },
   };
+}
+
+function readinessSummary(
+  result: Awaited<ReturnType<typeof runRedReadinessCheck>>,
+  machine: EngagementDeps["machine"],
+  specSession: SpecSessionOutcome
+): string {
+  const lines = [formatRedReadinessResult(result)];
+
+  if (result.refinedSpec) {
+    lines.push("", formatSpec(machine));
+  }
+
+  if (specSession.waitingForHarness) {
+    lines.push(
+      "",
+      "RED readiness reviewed the checklist, but TDD stays dormant until the repository has a runnable test harness."
+    );
+  }
+
+  if (result.ok && machine.enabled && machine.phase === "SPEC") {
+    lines.push(
+      "",
+      "SPEC stays active until you enter RED with tdd_start(phase: 'RED')."
+    );
+  }
+
+  return lines.join("\n");
+}
+
+function redReadinessIssueCount(
+  result: Awaited<ReturnType<typeof runRedReadinessCheck>>
+): number {
+  return result.final.ok ? 0 : result.final.issues.length;
 }

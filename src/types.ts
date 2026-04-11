@@ -1,5 +1,11 @@
 export type TDDPhase = "SPEC" | "RED" | "GREEN" | "REFACTOR";
 export type TestProofLevel = "unit" | "integration" | "unknown";
+export type BehaviorSeam =
+  | "business_http"
+  | "business_ui"
+  | "business_domain"
+  | "internal_support"
+  | "unknown";
 
 export interface TestSignal {
   command: string;
@@ -12,6 +18,7 @@ export interface ProofCheckpoint {
   /** 1-based spec item position being proven, or null when no checklist item is active. */
   itemIndex: number | null;
   item: string | null;
+  seam: BehaviorSeam;
   command: string;
   commandFamily: string;
   level: TestProofLevel;
@@ -40,6 +47,7 @@ export interface PhaseState {
   enabled: boolean;
   plan: string[];
   planCompleted: number;
+  requestedSeam: BehaviorSeam | null;
 }
 
 export interface PhaseTransitionLog {
@@ -67,6 +75,8 @@ export interface ReviewModelRef {
 export interface ReviewModels {
   preflight?: ReviewModelRef;
   postflight?: ReviewModelRef;
+  specClarification?: ReviewModelRef;
+  specRefinement?: ReviewModelRef;
 }
 
 export interface TDDConfig {
@@ -77,15 +87,14 @@ export interface TDDConfig {
   autoTransition: boolean;
   refactorTransition: "user" | "agent" | "timeout";
   allowReadInAllPhases: boolean;
-  temperature: number;
   maxDiffsInContext: number;
   persistPhase: boolean;
   startInSpecMode: boolean;
   /**
    * If true, every fresh session starts with TDD engaged (legacy behavior).
    * If false (default), sessions start dormant — TDD only engages when the
-   * agent calls tdd_engage, when a configured lifecycle hook fires, or when
-   * the user runs an explicit /tdd phase command.
+   * agent calls tdd_start, when a configured lifecycle hook fires, or when
+   * the user runs /tdd on or /tdd with a feature/bug request.
    */
   defaultEngaged: boolean;
   /**
@@ -98,7 +107,7 @@ export interface TDDConfig {
   /**
    * Tool names that auto-engage TDD when called. Useful for hooking task or
    * feature management tools (e.g., manifest's start_feature) into the TDD
-   * lifecycle without requiring the agent to remember tdd_engage.
+   * lifecycle without requiring the agent to remember tdd_start.
    */
   engageOnTools: string[];
   /**

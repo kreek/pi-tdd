@@ -2,6 +2,13 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { PhaseState, TDDConfig } from "./types.js";
 import { loadPrompt } from "./prompt-loader.js";
 import { extractJSON, runReview } from "./reviews.js";
+import {
+  classifyProofSeam,
+  classifyRequestedSeam,
+  isBusinessRequestSeam,
+  seamLabel,
+  seamSatisfiesRequest,
+} from "./seams.js";
 
 /**
  * Postflight (proving the cycle) — runs after the TDD cycle is complete with
@@ -11,10 +18,10 @@ import { extractJSON, runReview } from "./reviews.js";
  * the surrounding project unless the user request or spec justifies something
  * new.
  *
- * Auto-triggered on every disengage path (tdd_disengage tool, /tdd disengage
+ * Auto-triggered on every disengage path (tdd_stop tool, /tdd off
  * command, and disengageOnTools lifecycle hooks) when there is real evidence
  * to review — see maybeRunPostflightOnDisengage in engagement.ts. Can also be
- * invoked explicitly via the tdd_postflight tool or /tdd postflight command
+ * invoked explicitly via the tdd_postflight tool
  * for mid-flow checkpoints.
  */
 
@@ -39,8 +46,13 @@ const SYSTEM_PROMPT = loadPrompt("postflight-system");
 
 export function buildPostflightUserPrompt(input: PostflightInput): string {
   const { state, userStory } = input;
+  const requestedSeam = state.requestedSeam ?? classifyRequestedSeam(userStory, state.plan);
+  const proofSeam = state.proofCheckpoint?.seam ?? classifyProofSeam({});
   return [
     ...userStoryLines(userStory),
+    `Requested seam: ${seamLabel(requestedSeam)}`,
+    `Observed proof seam: ${seamLabel(proofSeam)}`,
+    "",
     ...postflightSpecLines(state),
     "",
     ...testEvidenceLines(state),
@@ -67,6 +79,11 @@ export async function runPostflight(
         { itemIndex: null, message: "Tests are not currently passing." },
       ],
     };
+  }
+
+  const runtimeGaps = seamMismatchGaps(input);
+  if (runtimeGaps) {
+    return runtimeGaps;
   }
 
   const raw = await runReview(
@@ -214,6 +231,7 @@ function proofCheckpointLines(state: PhaseState): string[] {
   const lines = [
     "Proof checkpoint for this cycle:",
     `Spec item: ${formatCheckpointItem(checkpoint.itemIndex, checkpoint.item)}`,
+    `Proof seam: ${seamLabel(checkpoint.seam)}`,
     `Captured in RED by: FAIL | ${formatProofLevel(checkpoint.level)} | ${checkpoint.command}`,
   ];
 
@@ -294,4 +312,36 @@ function postflightResponseLines(): string[] {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function seamMismatchGaps(input: PostflightInput): PostflightResult | null {
+  const requestedSeam = input.state.requestedSeam ?? classifyRequestedSeam(input.userStory, input.state.plan);
+  if (!isBusinessRequestSeam(requestedSeam)) {
+    return null;
+  }
+
+  const proofSeam = input.state.proofCheckpoint?.seam ?? "unknown";
+  if (seamSatisfiesRequest(requestedSeam, proofSeam)) {
+    return null;
+  }
+
+  const missingProofMessage = input.state.proofCheckpoint
+    ? `Requested ${seamLabel(requestedSeam)}, but the proving slice stayed at ${seamLabel(proofSeam)}.`
+    : `Requested ${seamLabel(requestedSeam)}, but no proving checkpoint was captured at that seam.`;
+
+  return {
+    ok: false,
+    reason: "The green test evidence does not prove the requested business seam yet.",
+    gaps: [
+      {
+        itemIndex: input.state.proofCheckpoint?.itemIndex ?? null,
+        message: missingProofMessage,
+      },
+      {
+        itemIndex: null,
+        message:
+          "Add route/page-level proof for this feature before treating helper, schema, service, or migration tests as complete delivery.",
+      },
+    ],
+  };
 }

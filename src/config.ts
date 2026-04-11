@@ -12,7 +12,6 @@ const DEFAULTS: Omit<TDDConfig, "guidelines"> = {
   autoTransition: true,
   refactorTransition: "user",
   allowReadInAllPhases: true,
-  temperature: 0,
   maxDiffsInContext: 5,
   persistPhase: true,
   startInSpecMode: false,
@@ -27,6 +26,8 @@ type UserConfig = Partial<Omit<TDDConfig, "guidelines">> & {
   judgeProvider?: string | null;
   /** Deprecated alias for reviewModel. */
   judgeModel?: string | null;
+  /** Deprecated removed option; ignored on load. */
+  temperature?: number;
   guidelines?: Partial<GuidelinesConfig> & { plan?: string | null };
 };
 
@@ -86,6 +87,7 @@ export function loadConfig(cwd: string): TDDConfig {
     guidelines: _ignoredGuidelines,
     judgeProvider: _ignoredJudgeProvider,
     judgeModel: _ignoredJudgeModel,
+    temperature: _ignoredTemperature,
     ...rest
   } = user;
 

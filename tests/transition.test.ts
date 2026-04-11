@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fallbackTransition, evaluateTransition, extractTestSignal, inferTestProofLevel, isTestCommand } from "../src/transition.ts";
 import { PhaseStateMachine } from "../src/phase.ts";
 import { resolveGuidelines } from "../src/guidelines.ts";
@@ -13,7 +13,6 @@ function makeConfig(overrides: Partial<TDDConfig> = {}): TDDConfig {
     autoTransition: true,
     refactorTransition: "user",
     allowReadInAllPhases: true,
-    temperature: 0,
     maxDiffsInContext: 5,
     persistPhase: false,
     startInSpecMode: false,
@@ -30,8 +29,8 @@ function makeContext() {
   return {
     hasUI: false,
     ui: {
-      notify() {},
-      setStatus() {},
+      notify: vi.fn(),
+      setStatus: vi.fn(),
     },
   } as never;
 }
@@ -214,12 +213,42 @@ describe("evaluateTransition", () => {
     expect(machine.getSnapshot().proofCheckpoint).toEqual({
       itemIndex: 1,
       item: "persist settings through the HTTP API",
+      seam: "business_http",
       command: "npm run test:integration",
       commandFamily: "npm:test:integration",
       level: "integration",
       testFiles: ["tests/http/settings.integration.test.ts"],
       mutationCountAtCapture: 1,
     });
+  });
+
+  it("nudges RED when tests pass before a failing proof has been established", async () => {
+    const ctx = {
+      hasUI: true,
+      ui: {
+        notify: vi.fn(),
+        setStatus: vi.fn(),
+      },
+    } as never;
+    const machine = new PhaseStateMachine({
+      enabled: true,
+      phase: "RED",
+      plan: ["persist settings through the HTTP API"],
+    });
+    machine.recordMutation("edit", "tests/http/settings.integration.test.ts");
+
+    await evaluateTransition(
+      [{ command: "npm run test:integration", output: "1 passed", failed: false, level: "integration" }],
+      machine,
+      makeConfig(),
+      ctx
+    );
+
+    expect(machine.getSnapshot().proofCheckpoint).toBeNull();
+    expect(ctx.ui.notify).toHaveBeenCalledWith(
+      "RED still needs its first failing proving test for the current spec item",
+      "info"
+    );
   });
 
   it("keeps GREEN focused on the active proof target", async () => {
@@ -229,6 +258,7 @@ describe("evaluateTransition", () => {
       proofCheckpoint: {
         itemIndex: 1,
         item: "persist settings through the HTTP API",
+        seam: "business_http",
         command: "npm test",
         commandFamily: "npm:test",
         level: "unknown",

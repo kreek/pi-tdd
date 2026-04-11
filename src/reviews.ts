@@ -1,6 +1,7 @@
 import { complete, type Model } from "@mariozechner/pi-ai";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { ReviewModels, TDDConfig } from "./types.js";
+import { captureText, logDebugRunEvent } from "./debug-run-log.js";
 
 /**
  * Shared infrastructure for the two review steps that bookend a TDD cycle:
@@ -39,6 +40,13 @@ export async function runReview(
   }
 
   const auth = await resolveReviewAuth(ctx, model);
+  logDebugRunEvent({
+    type: "review_request",
+    label: request.label,
+    model: { provider: model.provider, id: model.id },
+    systemPrompt: captureText(request.systemPrompt),
+    userPrompt: captureText(request.userPrompt),
+  });
 
   const response = await complete(
     model,
@@ -47,21 +55,42 @@ export async function runReview(
       apiKey: auth.apiKey,
       headers: auth.headers,
       signal: ctx.signal,
-      temperature: 0,
     }
   );
 
   if (response.stopReason === "aborted") {
+    logDebugRunEvent({
+      type: "review_error",
+      label: request.label,
+      reason: "aborted",
+    });
     throw new Error(`${request.label} request aborted`);
   }
   if (response.stopReason === "error") {
+    logDebugRunEvent({
+      type: "review_error",
+      label: request.label,
+      reason: response.errorMessage ?? `${request.label} request failed`,
+    });
     throw new Error(response.errorMessage ?? `${request.label} request failed`);
   }
 
   const text = responseText(response.content);
   if (!text) {
+    logDebugRunEvent({
+      type: "review_error",
+      label: request.label,
+      reason: `${request.label} returned no text`,
+    });
     throw new Error(`${request.label} returned no text`);
   }
+
+  logDebugRunEvent({
+    type: "review_response",
+    label: request.label,
+    stopReason: response.stopReason,
+    text: captureText(text),
+  });
 
   return { text };
 }

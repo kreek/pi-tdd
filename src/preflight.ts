@@ -2,6 +2,14 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import type { TDDConfig, TDDPhase } from "./types.js";
 import { loadPrompt } from "./prompt-loader.js";
 import { extractJSON, runReview } from "./reviews.js";
+import {
+  classifyChecklistItemSeam,
+  classifyRequestedSeam,
+  isBusinessRequestSeam,
+  seamLabel,
+  seamSatisfiesRequest,
+  summarizeChecklistSeams,
+} from "./seams.js";
 
 /**
  * Preflight (priming the cycle) — runs before transitioning out of SPEC into
@@ -15,6 +23,8 @@ export interface PreflightInput {
   spec: string[];
   /** Optional user story / request text for context. */
   userStory?: string;
+  /** Current checklist position that RED would start proving. */
+  planCompleted?: number;
 }
 
 export interface PreflightIssue {
@@ -40,12 +50,20 @@ export function shouldRunPreflightOnRedEntry(
 const SYSTEM_PROMPT = loadPrompt("preflight-system");
 
 export function buildPreflightUserPrompt(input: PreflightInput): string {
+  const seamSummary = summarizeChecklistSeams(
+    input.spec,
+    classifyRequestedSeam(input.userStory, input.spec),
+    input.planCompleted ?? 0
+  );
+
   return [
     ...userStoryLines(input.userStory),
     ...specChecklistLines(input.spec),
     "",
-    "For each spec item, consider whether the best first proof should be a unit test, an integration test, or both.",
-    "Boundary-heavy behavior should usually be provable with integration-level tests, not only isolated mocks.",
+    ...seamContextLines(seamSummary),
+    "",
+    "Choose the cheapest honest first proof level: unit or integration.",
+    "For route, API, redirect, page, and form requests, RED should start at that outer seam rather than at helper, schema, or service checks.",
     "",
     "Decide whether this spec is ready to start a TDD cycle.",
     "",
@@ -61,10 +79,19 @@ export async function runPreflight(
   if (input.spec.length === 0) {
     return {
       ok: false,
-      reason: "Spec checklist is empty. Add at least one acceptance criterion before starting RED.",
+      reason: "Spec checklist is still empty. Add at least one acceptance criterion before starting RED.",
       issues: [
-        { itemIndex: null, message: "No spec items to drive the cycle." },
+        { itemIndex: null, message: "No spec items yet to drive the cycle." },
       ],
+    };
+  }
+
+  const runtimeIssues = seamAlignmentIssues(input);
+  if (runtimeIssues.length > 0) {
+    return {
+      ok: false,
+      reason: "The checklist is not aligned with the seam the request actually needs to prove first.",
+      issues: runtimeIssues,
     };
   }
 
@@ -127,10 +154,10 @@ export function parsePreflightResponse(raw: string): PreflightResult {
 
 export function formatPreflightResult(result: PreflightResult): string {
   if (result.ok) {
-    return `Pre-flight OK — ${result.reason}`;
+    return `RED readiness OK — ${result.reason}`;
   }
 
-  const lines = [`Pre-flight found ${result.issues.length} issue(s): ${result.reason}`];
+  const lines = [`RED readiness suggests ${result.issues.length} refinement(s): ${result.reason}`];
   for (const issue of result.issues) {
     const prefix = issue.itemIndex === null ? "  •" : `  ${issue.itemIndex}.`;
     lines.push(`${prefix} ${issue.message}`);
@@ -152,6 +179,60 @@ function specChecklistLines(spec: string[]): string[] {
     : spec.map((item, index) => `${index + 1}. ${item}`);
 
   return ["Spec checklist (one item per line):", ...items];
+}
+
+function seamContextLines(summary: ReturnType<typeof summarizeChecklistSeams>): string[] {
+  return [
+    `Requested seam: ${seamLabel(summary.requested)}`,
+    `Current RED target seam: ${summary.current ? seamLabel(summary.current) : "none"}`,
+    `Checklist seam mix: HTTP ${summary.counts.business_http}, UI ${summary.counts.business_ui}, domain ${summary.counts.business_domain}, support ${summary.counts.internal_support}`,
+  ];
+}
+
+function seamAlignmentIssues(input: PreflightInput): PreflightIssue[] {
+  const requested = classifyRequestedSeam(input.userStory, input.spec);
+  if (!isBusinessRequestSeam(requested)) {
+    return [];
+  }
+
+  const matchingItems = input.spec
+    .map((item, index) => ({ index, seam: classifyChecklistItemSeam(item) }))
+    .filter((entry) => seamSatisfiesRequest(requested, entry.seam));
+  const currentIndex = activeIndex(input.spec.length, input.planCompleted ?? 0);
+  const currentItem = input.spec[currentIndex] ?? null;
+  const currentSeam = currentItem ? classifyChecklistItemSeam(currentItem) : "unknown";
+  const issues: PreflightIssue[] = [];
+
+  if (matchingItems.length === 0) {
+    issues.push({
+      itemIndex: null,
+      message:
+        `The checklist never reaches the ${seamLabel(requested)}. Start with a user-visible slice at that seam before helper, schema, service, or migration work.`,
+    });
+  }
+
+  if (currentItem && !seamSatisfiesRequest(requested, currentSeam)) {
+    issues.push({
+      itemIndex: currentIndex + 1,
+      message:
+        `Start RED at the ${seamLabel(requested)} for this request. This item is ${seamLabel(currentSeam)} and should be support work, not the proving slice.`,
+    });
+  }
+
+  return issues;
+}
+
+function activeIndex(length: number, planCompleted: number): number {
+  if (length === 0) {
+    return 0;
+  }
+  if (planCompleted < 0) {
+    return 0;
+  }
+  if (planCompleted >= length) {
+    return length - 1;
+  }
+  return planCompleted;
 }
 
 function preflightResponseLines(): string[] {

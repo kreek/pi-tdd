@@ -10,10 +10,13 @@ export const PROMPT_NAMES = [
   "guidelines-universal",
   "postflight-system",
   "preflight-system",
+  "spec-clarification-system",
+  "spec-refinement-system",
   "tool-disengage-guidelines",
   "tool-engage-guidelines",
   "tool-postflight-guidelines",
   "tool-preflight-guidelines",
+  "tool-spec-guidelines",
 ] as const;
 
 export type PromptName = typeof PROMPT_NAMES[number];

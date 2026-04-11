@@ -130,6 +130,11 @@ declare module "@mariozechner/pi-coding-agent" {
     TSchema,
   } from "@mariozechner/pi-ai";
 
+  export interface Theme {
+    fg(color: string, text: string): string;
+    bold(text: string): string;
+  }
+
   export interface CustomEntry<T = unknown> {
     type: "custom";
     customType: string;
@@ -179,7 +184,10 @@ declare module "@mariozechner/pi-coding-agent" {
     notify(message: string, type?: "info" | "warning" | "error"): void;
     setStatus(key: string, text: string | undefined): void;
     setWidget(key: string, content: string[] | undefined, options?: unknown): void;
+    setWorkingMessage(message?: string): void;
+    setHiddenThinkingLabel(label?: string): void;
     setEditorText(text: string): void;
+    readonly theme: Theme;
     custom<T>(
       factory: (
         tui: unknown,

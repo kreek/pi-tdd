@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@mariozechner/pi-coding-agent";
 import type {
+  BehaviorSeam,
   MutationRecord,
   PhaseState,
   ProofCheckpoint,
@@ -48,6 +49,7 @@ export function restoreState(ctx: ExtensionContext): PhaseState | null {
       enabled: typeof state.enabled === "boolean" ? state.enabled : true,
       plan: Array.isArray(state.plan) ? state.plan : [],
       planCompleted: typeof state.planCompleted === "number" ? state.planCompleted : 0,
+      requestedSeam: normalizeBehaviorSeam(state.requestedSeam),
     };
   }
 
@@ -96,6 +98,16 @@ function normalizeProofLevel(value: unknown): TestProofLevel {
     : "unknown";
 }
 
+function normalizeBehaviorSeam(value: unknown): BehaviorSeam | null {
+  return value === "business_http" ||
+    value === "business_ui" ||
+    value === "business_domain" ||
+    value === "internal_support" ||
+    value === "unknown"
+    ? value
+    : null;
+}
+
 function normalizeMutations(value: unknown): MutationRecord[] {
   if (!Array.isArray(value)) {
     return [];
@@ -140,6 +152,7 @@ function normalizeProofCheckpoint(value: unknown): ProofCheckpoint | null {
   return {
     itemIndex: typeof checkpoint.itemIndex === "number" ? checkpoint.itemIndex : null,
     item: typeof checkpoint.item === "string" ? checkpoint.item : null,
+    seam: normalizeBehaviorSeam(checkpoint.seam) ?? "unknown",
     command: checkpoint.command,
     commandFamily: checkpoint.commandFamily,
     level: normalizeProofLevel(checkpoint.level),
