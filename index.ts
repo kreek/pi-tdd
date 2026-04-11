@@ -1,7 +1,7 @@
 /**
  * Pi TDD Extension
  *
- * Enforces red-green-refactor sequencing when activated via /tdd.
+ * Enforces specifying-implementing-refactoring sequencing when activated via /tdd.
  * Off by default. No configuration beyond a test command.
  */
 
@@ -10,7 +10,7 @@ import { truncateToWidth } from "@mariozechner/pi-tui";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-type Phase = "off" | "red" | "green" | "refactor";
+type Phase = "off" | "specifying" | "implementing" | "refactoring";
 
 interface TestResult {
 	name: string;
@@ -147,9 +147,9 @@ export default function tddExtension(pi: ExtensionAPI) {
 	}
 
 	function setPhase(next: Phase, ctx: ExtensionContext) {
-		if (next === "red" && phase === "refactor") cycleCount++;
+		if (next === "specifying" && phase === "refactoring") cycleCount++;
 		phase = next;
-		if (next === "red") testFileWritten = false;
+		if (next === "specifying") testFileWritten = false;
 		if (next === "off") {
 			lastSummary = undefined;
 			cycleCount = 0;
@@ -161,9 +161,9 @@ export default function tddExtension(pi: ExtensionAPI) {
 	// -- HUD widget -----------------------------------------------------------
 
 	const PHASE_COLORS: Record<string, "error" | "success" | "accent"> = {
-		red: "error",
-		green: "success",
-		refactor: "accent",
+		specifying: "error",
+		implementing: "accent",
+		refactoring: "success",
 	};
 
 	function updateWidget(ctx: ExtensionContext) {
@@ -219,10 +219,10 @@ export default function tddExtension(pi: ExtensionAPI) {
 	function shouldRunTests(filePath: string): boolean {
 		if (isConfigFile(filePath)) return false;
 		switch (phase) {
-			case "red":
+			case "specifying":
 				return isTestFile(filePath);
-			case "green":
-			case "refactor":
+			case "implementing":
+			case "refactoring":
 				return true;
 			default:
 				return false;
@@ -232,7 +232,7 @@ export default function tddExtension(pi: ExtensionAPI) {
 	// -- /tdd command ---------------------------------------------------------
 
 	pi.registerCommand("tdd", {
-		description: "Toggle TDD mode (red-green-refactor)",
+		description: "Toggle TDD mode (specifying-implementing-refactoring)",
 		handler: async (_args, ctx) => {
 			if (phase === "off") {
 				testCommand = await inferTestCommand(ctx.cwd);
@@ -245,7 +245,7 @@ export default function tddExtension(pi: ExtensionAPI) {
 				}
 				cycleCount = 1;
 				lastSummary = undefined;
-				setPhase("red", ctx);
+				setPhase("specifying", ctx);
 				ctx.ui.notify("TDD on \u2014 write a failing test");
 			} else {
 				setPhase("off", ctx);
@@ -254,19 +254,19 @@ export default function tddExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	// -- RED phase: gate production code writes -------------------------------
+	// -- SPECIFYING phase: gate production code writes ------------------------
 
 	pi.on("tool_call", async (event, ctx) => {
-		if (phase !== "red") return undefined;
+		if (phase !== "specifying") return undefined;
 		if (event.toolName !== "write" && event.toolName !== "edit") return undefined;
 
 		const filePath = event.input.path as string;
 		if (!filePath || isTestFile(filePath) || isConfigFile(filePath)) return undefined;
 
 		if (ctx.hasUI) {
-			ctx.ui.notify("RED: write a failing test first", "warning");
+			ctx.ui.notify("SPECIFYING: write a failing test first", "warning");
 		}
-		return { block: true, reason: "TDD RED phase: write a failing test before changing production code" };
+		return { block: true, reason: "TDD SPECIFYING phase: write a failing test before changing production code" };
 	});
 
 	// -- Auto-run tests after writes ------------------------------------------
@@ -281,8 +281,8 @@ export default function tddExtension(pi: ExtensionAPI) {
 		if (isTestFile(filePath)) testFileWritten = true;
 		if (!shouldRunTests(filePath)) return;
 
-		// RED requires a test file to have been written
-		if (phase === "red" && !testFileWritten) return;
+		// SPECIFYING requires a test file to have been written
+		if (phase === "specifying" && !testFileWritten) return;
 
 		const { passed, output, durationMs } = await runTests();
 
@@ -296,12 +296,12 @@ export default function tddExtension(pi: ExtensionAPI) {
 		const appended = [...event.content, { type: "text" as const, text: `\n${label}:\n${output}` }];
 
 		// State transitions
-		if (phase === "red" && !passed) {
-			setPhase("green", ctx);
-		} else if (phase === "green" && passed) {
-			setPhase("refactor", ctx);
+		if (phase === "specifying" && !passed) {
+			setPhase("implementing", ctx);
+		} else if (phase === "implementing" && passed) {
+			setPhase("refactoring", ctx);
 		}
-		// REFACTOR + fail: agent is told via system prompt to revert
+		// REFACTORING + fail: agent is told via system prompt to revert
 
 		return { content: appended };
 	});
@@ -328,18 +328,18 @@ export default function tddExtension(pi: ExtensionAPI) {
 
 		updateWidget(ctx);
 
-		if (phase === "red" && testFileWritten && !testPassed) {
-			setPhase("green", ctx);
-		} else if (phase === "green" && testPassed) {
-			setPhase("refactor", ctx);
+		if (phase === "specifying" && testFileWritten && !testPassed) {
+			setPhase("implementing", ctx);
+		} else if (phase === "implementing" && testPassed) {
+			setPhase("refactoring", ctx);
 		}
 	});
 
-	// -- REFACTOR -> RED on new user turn -------------------------------------
+	// -- REFACTORING -> SPECIFYING on new user turn ---------------------------
 
 	pi.on("turn_start", async (_event, ctx) => {
-		if (phase === "refactor") {
-			setPhase("red", ctx);
+		if (phase === "refactoring") {
+			setPhase("specifying", ctx);
 		}
 	});
 
@@ -349,9 +349,9 @@ export default function tddExtension(pi: ExtensionAPI) {
 		if (phase === "off") return undefined;
 
 		const guidance: Record<string, string> = {
-			red: "Write a failing test FIRST. Do not modify production code until a test exists and fails. Use standard test file naming (*.test.*, *.spec.*, *_test.*, *_spec.*, or files in __tests__/ or test/ directories).",
-			green: "Write the MINIMAL production code to make the failing test pass. No extra functionality or refactoring yet.",
-			refactor: "Restructure code freely but keep all tests passing. No new behavior. If a change causes test failure, revert it immediately.",
+			specifying: "Write a failing test FIRST. Do not modify production code until a test exists and fails. Use standard test file naming (*.test.*, *.spec.*, *_test.*, *_spec.*, or files in __tests__/ or test/ directories).",
+			implementing: "Write the MINIMAL production code to make the failing test pass. No extra functionality or refactoring yet.",
+			refactoring: "Restructure code freely but keep all tests passing. No new behavior. If a change causes test failure, revert it immediately.",
 		};
 
 		return {
