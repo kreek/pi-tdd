@@ -1,7 +1,0 @@
-- tdd_preflight is the same RED-readiness check that runs automatically when entering RED via tdd_start(phase: 'RED').
-- Use it when you want to inspect or sharpen the checklist while still in SPEC.
-- If the request is clearly about an API, route, redirect, page, or form, treat helper/schema/service-first checklists as misaligned and rewrite them toward that business seam.
-- If the request is only schema, migration, database, or setup work, push back and clarify whether it should be folded under the first business slice instead of treated as a standalone feature.
-- If the checklist is empty but the request is clear, RED readiness may draft the first checklist from that request.
-- If the checklist is close but not quite ready, the readiness check may refine it once for you instead of only sending it back unchanged.
-- If the behavior is still ambiguous after that refinement pass, ask the user 1-2 concise clarification questions before retrying RED.

@@ -1,4 +1,0 @@
-- Use tdd_refine_feature_spec in SPEC to write or replace the checklist without overriding the read-only file gate.
-- Keep each item concrete, observable, and behavior-focused. Do not store implementation tasks or file-edit plans as spec items.
-- For route, API, redirect, page, or form requests, keep the first items at that user-visible seam. Helper/schema/service checks are support work unless the user explicitly asked for internals.
-- When RED readiness says the checklist is still weak, revise it with tdd_refine_feature_spec before retrying RED.
