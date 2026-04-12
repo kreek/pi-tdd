@@ -1,34 +1,47 @@
 {
-	"name": "pi-tdd",
-	"version": "0.1.0",
-	"description": "TDD extension for Pi -- enforces red-green-refactor sequencing",
-	"type": "module",
-	"pi": {
-		"extensions": ["./src/index.ts"]
-	},
-	"files": [
-		"src",
-		"README.md",
-		"LICENSE"
-	],
-	"scripts": {
-		"install-ext": "mkdir -p ~/.pi/agent/extensions && ln -sfn \"$(pwd)\" ~/.pi/agent/extensions/pi-tdd && echo 'Installed to ~/.pi/agent/extensions/pi-tdd -- run /reload in Pi to activate'",
-		"uninstall-ext": "rm -f ~/.pi/agent/extensions/pi-tdd && echo 'Uninstalled'",
-		"test": "vitest run"
-	},
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/manifestdocs/pi-tdd.git"
-	},
-	"author": "Alastair Dawson",
-	"devDependencies": {
-		"vitest": "^3.2.1"
-	},
-	"peerDependencies": {
-		"@mariozechner/pi-coding-agent": "*",
-		"@mariozechner/pi-tui": "*",
-		"@sinclair/typebox": "*"
-	},
-	"license": "MIT",
-	"keywords": ["pi-package", "pi", "tdd", "extension", "test-driven-development"]
+  "name": "pi-tdd",
+  "version": "0.1.0",
+  "description": "TDD extension for Pi -- enforces red-green-refactor sequencing",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "install-ext": "mkdir -p ~/.pi/agent/extensions && ln -sfn \"$(pwd)\" ~/.pi/agent/extensions/pi-tdd && echo 'Installed to ~/.pi/agent/extensions/pi-tdd -- run /reload in Pi to activate'",
+    "uninstall-ext": "rm -f ~/.pi/agent/extensions/pi-tdd && echo 'Uninstalled'",
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "test": "vitest run"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/manifestdocs/pi-tdd.git"
+  },
+  "author": "Alastair Dawson",
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.11",
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.2",
+    "vitest": "^3.2.1"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@mariozechner/pi-tui": "*",
+    "@sinclair/typebox": "*"
+  },
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "tdd",
+    "extension",
+    "test-driven-development"
+  ]
 }
