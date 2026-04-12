@@ -2,7 +2,7 @@
 
 A minimal TDD extension for [Pi](https://pi.dev), the terminal coding agent. Enforces **specifying-implementing-refactoring** sequencing when activated via `/tdd`. Off by default. No configuration beyond a test command.
 
-One file. No build step. No configuration files.
+No build step. No configuration files.
 
 ---
 
@@ -184,17 +184,25 @@ No configuration needed.
 
 ## Test output parsing
 
-The extension parses test output from multiple frameworks to extract individual test results, pass/fail counts, and duration:
+The extension parses test output from 13+ frameworks using a Strategy pattern -- each framework has its own parser, and adding a new one means appending a single object. Individual test results, pass/fail counts, and duration are extracted automatically.
 
-| Framework | Pass pattern | Fail pattern |
-|-----------|-------------|-------------|
-| Jest / Vitest | `✓ name` | `✗ name` |
-| Go | `--- PASS: TestName` | `--- FAIL: TestName` |
-| pytest | `path::test PASSED` | `path::test FAILED` |
-| Cargo | `test name ... ok` | `test name ... FAILED` |
-| TAP | `ok N - desc` | `not ok N - desc` |
+| Language | Frameworks | Pass pattern | Fail pattern |
+|----------|-----------|-------------|-------------|
+| JS/TS | Jest, Vitest, Mocha, Bun, AVA | `✓ name` | `✗ name` |
+| Python | pytest | `path::test PASSED` | `path::test FAILED` |
+| Python | unittest | `test (Class) ... ok` | `test (Class) ... FAIL` |
+| Go | go test | `--- PASS: TestName` | `--- FAIL: TestName` |
+| Rust | cargo test | `test name ... ok` | `test name ... FAILED` |
+| Ruby | RSpec | — | `name (FAILED - 1)` |
+| Ruby | Minitest | `Class#test = 0.00 s = .` | `Class#test = 0.00 s = F` |
+| Java/Kotlin | Gradle | `Class > test() PASSED` | `Class > test() FAILED` |
+| C# | dotnet test | `Passed TestName` | `Failed TestName` |
+| Swift | XCTest | `Test Case '...' passed` | `Test Case '...' failed` |
+| PHP | PHPUnit | `✔ name` | `✘ name` |
+| Elixir | ExUnit | `* test name (0.1ms)` | — |
+| Universal | TAP | `ok N - desc` | `not ok N - desc` |
 
-When individual test lines aren't found, the parser falls back to summary-level regex matching (`N passed`, `N failed`).
+When individual test lines aren't found, the parser falls back to summary-level regex matching (`N passed`, `N failed`). Frameworks like JUnit/Maven that only output summaries are handled by this fallback.
 
 Parsed test output is appended to the tool result so the agent sees the test results inline, and is also used to populate the HUD widget.
 
@@ -209,6 +217,27 @@ When TDD is active, a widget appears in the Pi interface showing:
 
 The widget updates after every test run.
 
+## Development
+
+```bash
+git clone git@github.com:manifestdocs/pi-tdd.git
+cd pi-tdd
+npm install
+npm test          # vitest — 46 tests for the parser module
+```
+
+Project structure:
+
+```
+src/
+  index.ts        # Extension entry point, phase machine, HUD, tools
+  parsers.ts      # Test output parsers (Strategy pattern, 13 frameworks)
+test/
+  parsers.test.ts # Parser test suite
+```
+
+To add a new test framework parser, append a `TestLineParser` object to the `defaultParsers` array in `src/parsers.ts`.
+
 ## Limits
 
 This extension improves discipline. It does not replace judgment.
@@ -217,7 +246,7 @@ This extension improves discipline. It does not replace judgment.
 - The gate only blocks writes in SPECIFYING. IMPLEMENTING and REFACTORING steer via the system prompt rather than blocking tool calls, because over-blocking disrupts natural agent flow.
 - No persistent state between sessions.
 - No LLM-backed reviews -- the extension trusts test results as the source of truth.
-- No configuration files. If the defaults don't fit, modify `index.ts` directly.
+- No configuration files. If the defaults don't fit, modify `src/index.ts` directly.
 
 The goal is not perfect enforcement. The goal is to keep the agent inside a tight feedback loop where tests drive every change.
 
