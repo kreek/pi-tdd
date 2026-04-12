@@ -1,7 +1,6 @@
 # pi-tdd
 
-A minimal TDD extension for [Pi](https://pi.dev), the terminal coding agent. Enforces **specifying-implementing-refactoring** sequencing when activated via `/tdd`. Off by default. No configuration beyond a test command.
-
+A TDD extension for [Pi](https://pi.dev), the terminal coding agent. Enforces the **specifying-implementing-refactoring** cycle and nothing else — no opinions on frameworks, architecture, or workflow beyond the discipline of writing a failing test first.
 
 ---
 
