@@ -17,7 +17,7 @@ type Phase = "off" | "specifying" | "implementing" | "refactoring";
 
 // -- File classification ------------------------------------------------------
 
-const TEST_FILE_RE = /\.test\.|\.spec\.|_test\.|_spec\.|\/__tests__\/|\/test\//;
+const TEST_FILE_RE = /\.test\.|\.spec\.|_test\.|_spec\.|(?:^|\/)__tests__\/|(?:^|\/)tests?\/|(?:^|\/|\\)test_[^/\\]*\./;
 const CONFIG_FILE_RE = new RegExp(
   [
     "package\\.json$",
