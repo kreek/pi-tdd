@@ -1,6 +1,6 @@
 # pi-tdd
 
-A TDD extension for [Pi](https://pi.dev), the terminal coding agent. Enforces the **red-green-refactor** cycle and nothing else. No opinions on frameworks, architecture, or workflow beyond the discipline of writing a failing test first.
+A TDD extension for [Pi](https://pi.dev), the terminal coding agent. It guides Pi to use TDD for feature and bug fixing work, and then enforces a **red-green-refactor** cycle. It has built in parsing for the most popular test frameworks in each of the major programming languages. If you don't have a test framework already set up, it will pick a behavior focused specification library as that's the style I prefer (e.g. Vitest for TypeScript, RSpec for Ruby, etc.).
 
 ---
 
@@ -40,16 +40,16 @@ pi
 
 ```bash
 # Project-local
-pi install -l git:git@github.com:manifestdocs/pi-tdd.git
+pi install -l git:git@github.com:kreek/pi-tdd.git
 
 # Global
-pi install git:git@github.com:manifestdocs/pi-tdd.git
+pi install git:git@github.com:kreek/pi-tdd.git
 ```
 
 **From a local checkout:**
 
 ```bash
-git clone git@github.com:manifestdocs/pi-tdd.git
+git clone git@github.com:kreek/pi-tdd.git
 cd pi-tdd
 
 # Project-local (writes to .pi/settings.json)
@@ -79,7 +79,7 @@ You can also toggle TDD manually with the slash command:
 
 ## What is TDD?
 
-Test-driven development is a workflow:
+[Test-driven development](https://en.wikipedia.org/wiki/Test-driven_development) is a disciplined workflow that produces code proven to work and safe to change:
 
 1. Write a test that expresses the next behavior you want.
 2. Run it and confirm it fails.
@@ -91,7 +91,11 @@ The test does not have to be a unit test. Use the cheapest test that can prove t
 
 ## Why this matters for coding agents
 
-Empirical evidence from 2024-2026 shows that providing pre-written tests to LLM agents improves code generation accuracy by 12-46 percentage points across multiple benchmarks and models. [TDFlow](https://arxiv.org/abs/2510.23761) (2025) found that agents given human-written tests achieved 94.3% resolution on SWE-bench Verified, compared to 69.8% when generating their own tests.
+Research shows that human-written acceptance criteria improve agent code generation accuracy by 12-46 percentage points ([TDFlow](https://arxiv.org/abs/2510.23761), 2025). Context matters: you can hand an agent a requirements doc and let it figure things out, but results are better when a human specifies the behavior they want. When a human gets the user story and acceptance criteria right, pi-tdd's red-green-refactor cycle converts that guidance into tests that keep the agent on track.
+
+Separately, test-based iterative workflows improve agent accuracy even when the agent writes its own tests. [AlphaCodium](https://arxiv.org/abs/2401.08500) (2024) found that a test-execute-fix loop improved GPT-4 accuracy from 19% to 44% on competitive programming tasks. [Reflexion](https://arxiv.org/abs/2303.11366) (NeurIPS 2023) hit 91% on HumanEval using self-generated tests, up from 80%. The consistent finding: test execution gives agents external grounding that pure generation cannot.
+
+Tests also serve as context. Agents work from what they're given and solve for it. An existing test suite shows the agent how the application actually works, the same way an experienced engineer reads the tests first to understand a codebase. Tests catch when the agent breaks functionality elsewhere while solving for its immediate task. And for humans, tests are living documentation that outlasts any ticket/issue description.
 
 Without test-driven discipline, coding agents tend to:
 
@@ -126,40 +130,42 @@ When TDD is active, the extension:
 
 Phase transitions are automatic and driven entirely by test results:
 
-```
-OFF --(/tdd)--> SPECIFYING --[test fails]--> IMPLEMENTING --[tests pass]--> REFACTORING --[new turn]--> SPECIFYING
-                                                                                  \------(/tdd)-------> OFF
+```mermaid
+stateDiagram-v2
+    OFF --> SPECIFYING : /tdd or tdd_start
+    SPECIFYING --> IMPLEMENTING : test fails
+    IMPLEMENTING --> REFACTORING : tests pass
+    REFACTORING --> SPECIFYING : new turn
+    REFACTORING --> OFF : /tdd or tdd_done
 ```
 
 ## Phase details
 
 ### SPECIFYING
 
-Write a failing test first. The extension blocks `write` and `edit` tool calls targeting production code. Only test files and config files are allowed through. Once a test file has been written and the test command reports failure, the phase advances to IMPLEMENTING.
+You provide a well-written user story with clear acceptance criteria. The agent writes a focused, failing test that captures the behavior you described. Better tests lead to better code. This is where your guidance has the most leverage: the more precisely you describe the behavior, the tighter the feedback loop that follows.
 
-The agent's system prompt says: *"Write a failing test FIRST. Do not modify production code until a test exists and fails."*
+pi-tdd blocks `write` and `edit` tool calls targeting production code. Only test files and config files are allowed through. Once a test file has been written and the test command reports failure, pi-tdd advances to IMPLEMENTING.
 
 ### IMPLEMENTING
 
-Write the minimal production code to make the failing test pass. The extension runs tests after every file write. Once the test command reports success, the phase advances to REFACTORING.
-
-The agent's system prompt says: *"Write the MINIMAL production code to make the failing test pass. No extra functionality or refactoring yet."*
+The agent writes the minimal production code to make the failing test pass. pi-tdd runs tests after every file write. Once the test command reports success, pi-tdd advances to REFACTORING.
 
 ### REFACTORING
 
-Restructure code freely. The extension runs tests after every change. If tests fail, the agent is told to revert. No new behavior should be introduced in this phase.
+The agent restructures code freely. pi-tdd runs tests after every change. If tests fail, the agent is told to revert. No new behavior should be introduced in this phase.
 
-REFACTORING advances back to SPECIFYING automatically when a new user turn begins, starting the next cycle.
-
-The agent's system prompt says: *"Restructure code freely but keep all tests passing. No new behavior. If a change causes test failure, revert it immediately."*
+pi-tdd advances back to SPECIFYING automatically when you start a new turn, beginning the next cycle.
 
 ### Non-TDD tasks
 
-Some file changes have no testable behavior -- config files, lockfiles, dotfiles, manifests. The extension recognizes these by path pattern and lets them through in any phase without triggering test runs.
+Some file changes have no testable behavior: config files, lockfiles, dotfiles, manifests. pi-tdd recognizes these by path pattern and lets them through in any phase without triggering test runs.
 
-## Test command inference
+## Test integration
 
-The extension infers the test command from project files:
+pi-tdd infers the test command, detects test files, and parses test output automatically. No configuration needed for most projects.
+
+**Command inference** looks for project files and picks the right runner:
 
 | Detected file | Test command |
 |--------------|-------------|
@@ -170,39 +176,25 @@ The extension infers the test command from project files:
 
 If inference fails, the extension prompts for a test command on first `/tdd` invocation.
 
-## Test file detection
+**File detection** is convention-based. Files matching `*.test.*`, `*.spec.*`, `*_test.*`, `*_spec.*`, or files under `__tests__/` or `test/` directories are treated as test files.
 
-Convention-based. Files matching these patterns are treated as test files:
+**Output parsing** covers the major framework and runner formats across the languages below. Some parsers intentionally cover multiple tools that emit the same output shape.
 
-- `*.test.*` / `*.spec.*`
-- `*_test.*` / `*_spec.*`
-- Files under `__tests__/` or `test/` directories
+| Language | Frameworks / runners |
+|----------|----------------------|
+| JS/TS | Jest, Vitest, Mocha, Bun, AVA |
+| Python | pytest, unittest |
+| Go | go test |
+| Rust | cargo test |
+| Ruby | RSpec, Minitest |
+| Java/Kotlin | Gradle; JUnit/Maven (summary fallback) |
+| C# | dotnet test |
+| Swift | XCTest, Swift Testing |
+| PHP | PHPUnit, Pest |
+| Elixir | ExUnit |
+| Universal | TAP |
 
-No configuration needed.
-
-## Test output parsing
-
-The extension parses test output from 13+ frameworks using a Strategy pattern -- each framework has its own parser, and adding a new one means appending a single object. Individual test results, pass/fail counts, and duration are extracted automatically.
-
-| Language | Frameworks | Pass pattern | Fail pattern |
-|----------|-----------|-------------|-------------|
-| JS/TS | Jest, Vitest, Mocha, Bun, AVA | `✓ name` | `✗ name` |
-| Python | pytest | `path::test PASSED` | `path::test FAILED` |
-| Python | unittest | `test (Class) ... ok` | `test (Class) ... FAIL` |
-| Go | go test | `--- PASS: TestName` | `--- FAIL: TestName` |
-| Rust | cargo test | `test name ... ok` | `test name ... FAILED` |
-| Ruby | RSpec | — | `name (FAILED - 1)` |
-| Ruby | Minitest | `Class#test = 0.00 s = .` | `Class#test = 0.00 s = F` |
-| Java/Kotlin | Gradle | `Class > test() PASSED` | `Class > test() FAILED` |
-| C# | dotnet test | `Passed TestName` | `Failed TestName` |
-| Swift | XCTest | `Test Case '...' passed` | `Test Case '...' failed` |
-| PHP | PHPUnit | `✔ name` | `✘ name` |
-| Elixir | ExUnit | `* test name (0.1ms)` | — |
-| Universal | TAP | `ok N - desc` | `not ok N - desc` |
-
-When individual test lines aren't found, the parser falls back to summary-level regex matching (`N passed`, `N failed`). Frameworks like JUnit/Maven that only output summaries are handled by this fallback.
-
-Parsed test output is appended to the tool result so the agent sees the test results inline, and is also used to populate the HUD widget.
+When individual test lines aren't found, the parser falls back to summary-level regex matching. Frameworks like JUnit/Maven that only output summaries are handled by this fallback. Parsed results are appended to the tool result so the agent sees them inline, and also populate the HUD widget.
 
 ## HUD widget
 
@@ -218,7 +210,7 @@ The widget updates after every test run.
 ## Development
 
 ```bash
-git clone git@github.com:manifestdocs/pi-tdd.git
+git clone git@github.com:kreek/pi-tdd.git
 cd pi-tdd
 npm install
 npm test          # vitest, 46 tests for the parser module
@@ -240,7 +232,7 @@ To add a new test framework parser, append a `TestLineParser` object to the `def
 
 This extension improves discipline. It does not replace judgment.
 
-- A passing test can still be a weak test.
+- pi-tdd enforces the loop, not the quality of the tests. If the user story/AC are shallow, brittle, or wrong, passing them only gives shallow, brittle, or wrong confidence.
 - The gate only blocks writes in SPECIFYING. IMPLEMENTING and REFACTORING steer via the system prompt rather than blocking tool calls, because over-blocking disrupts natural agent flow.
 - No persistent state between sessions.
 - No LLM-backed reviews -- the extension trusts test results as the source of truth.
@@ -249,7 +241,7 @@ The goal is not perfect enforcement. The goal is to keep the agent inside a tigh
 
 ## Eval
 
-pi-tdd includes an eval suite built on [pi-do-eval](https://github.com/manifestdocs/pi-do-eval), a general-purpose eval framework for Pi extensions. The eval runs Pi with pi-tdd loaded against small coding projects, then scores TDD compliance, test quality, and correctness. See `eval/` for the plugin, projects, and run configuration.
+pi-tdd includes an eval suite built on [pi-do-eval](https://github.com/kreek/pi-do-eval), a general-purpose eval framework for Pi extensions. The eval runs Pi with pi-tdd loaded against small coding projects, then scores TDD compliance, test quality, and correctness. See `eval/` for the plugin, projects, and run configuration.
 
 ## License
 
