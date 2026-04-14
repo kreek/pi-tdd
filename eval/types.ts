@@ -38,6 +38,11 @@ export interface ModelConfig {
   thinking?: string;
 }
 
+export interface SuiteEntry {
+  trial: string;
+  variant: string;
+}
+
 export interface EvalConfig {
   worker?: ModelConfig;
   judge?: ModelConfig;
@@ -46,5 +51,13 @@ export interface EvalConfig {
     inactivityMs?: number;
     judgeMs?: number;
   };
-  runSets?: Record<string, Array<{ trial: string; variant: string }>>;
+  execution?: {
+    suiteConcurrency?: number;
+  };
+  suites?: Record<string, SuiteEntry[]>;
+  /** Compatibility alias for older configs. Prefer `suites`. */
+  runSets?: Record<string, SuiteEntry[]>;
+  regressions?: {
+    threshold?: number;
+  };
 }
