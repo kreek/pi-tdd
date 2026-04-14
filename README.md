@@ -15,6 +15,7 @@ A TDD extension for [Pi](https://pi.dev), the terminal coding agent. It guides P
 - [Test file detection](#test-file-detection)
 - [Test output parsing](#test-output-parsing)
 - [HUD widget](#hud-widget)
+- [Eval](#eval)
 - [Limits](#limits)
 - [License](#license)
 
@@ -243,7 +244,52 @@ The goal is not perfect enforcement. The goal is to keep the agent inside a tigh
 
 ## Eval
 
-pi-tdd includes an eval suite built on [pi-do-eval](https://github.com/kreek/pi-do-eval), a general-purpose eval framework for Pi extensions. The eval runs Pi with pi-tdd loaded against small coding projects, then scores TDD compliance, test quality, and correctness. See `eval/` for the plugin, projects, and run configuration.
+pi-tdd includes an eval harness built on [pi-do-eval](https://github.com/kreek/pi-do-eval), a general-purpose eval framework for Pi extensions. The eval runs Pi with pi-tdd loaded against small coding projects, then scores TDD compliance, test quality, and correctness.
+
+Setup:
+
+```bash
+cd eval
+npm install
+```
+
+List the available trials, variants, and suites:
+
+```bash
+npm run eval -- list
+```
+
+Run one project directly:
+
+```bash
+npm run eval -- run --trial temp-api --variant typescript-vitest
+```
+
+Run the routine regression suite:
+
+```bash
+npm run eval -- run small
+```
+
+`small` is the fast smoke/regression suite for day-to-day changes. `full` is the broader suite for larger changes and release confidence.
+
+Suites run serially by default. You can opt into parallel suite execution with `--concurrency <n>`, but the harness refuses values above `1` when the active worker or judge provider is subscription-backed (`anthropic` OAuth, `github-copilot`, `google-gemini-cli`, `google-antigravity`, or `openai-codex`).
+
+Open the web viewer:
+
+```bash
+npm run view
+```
+
+Then visit `http://localhost:3333`. The viewer reads run artifacts from `eval/runs/`, including the top-level `eval/runs/index.json` generated after each run.
+
+Check whether the latest suite regressed against the previous completed run of that suite:
+
+```bash
+npm run eval -- regress small
+```
+
+By default, `regress` compares the latest completed suite run against the immediately previous completed run of the same suite and exits nonzero if it detects a regression. You can also compare against a specific suite run ID with `--against <suite-run-id>` or tune the score threshold with `--threshold <n>`.
 
 ## License
 
