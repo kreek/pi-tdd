@@ -8,6 +8,8 @@ const PI_TDD_PATH = path.resolve(import.meta.dirname, "../../src/index.ts");
 const TEST_FILE_RE = /\.test\.|\.spec\.|_test\.|_spec\.|(?:^|\/)__tests__\/|(?:^|\/)tests?\/|(?:^|\/|\\)test_[^/\\]*\./;
 const CONFIG_FILE_RE =
   /package\.json$|tsconfig|\.eslintrc|\.prettierrc|\.gitignore$|\.env|Cargo\.toml$|go\.mod$|go\.sum$|pyproject\.toml$|Makefile$|Dockerfile|\.ya?ml$|\.toml$|\.ini$|\.cfg$|\.md$/;
+const SOURCE_RE = /\.(ts|js|tsx|jsx|py|rb|rs|go|c|ex|exs|java|kt|php)$/;
+const SKIP_DIRS = new Set(["node_modules", ".git", "target", "vendor", "__pycache__", "dist", ".next"]);
 
 // -- Configurable state (set via configure() before scoring) ------------------
 
@@ -127,15 +129,15 @@ export function scoreCorrectness(session: EvalSession, verify: VerifyResult): nu
 
 // -- Verification -------------------------------------------------------------
 
-function detectTestCommand(workDir: string): string | undefined {
-  const exists = (name: string) => fs.existsSync(path.join(workDir, name));
+function detectTestCommandInDir(dir: string): string | undefined {
+  const exists = (name: string) => fs.existsSync(path.join(dir, name));
 
   if (exists("package.json")) {
     try {
-      const pkg = JSON.parse(fs.readFileSync(path.join(workDir, "package.json"), "utf-8"));
+      const pkg = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf-8"));
       if (pkg.scripts?.test) return "npm test";
     } catch (err) {
-      console.warn(`[pi-tdd] Failed to parse package.json in ${workDir}:`, (err as Error).message);
+      console.warn(`[pi-tdd] Failed to parse package.json in ${dir}:`, (err as Error).message);
     }
   }
   if (exists("Cargo.toml")) return "cargo test";
@@ -145,21 +147,46 @@ function detectTestCommand(workDir: string): string | undefined {
   if (exists("mix.exs")) return "mix test";
   if (exists("Makefile")) {
     try {
-      const content = fs.readFileSync(path.join(workDir, "Makefile"), "utf-8");
+      const content = fs.readFileSync(path.join(dir, "Makefile"), "utf-8");
       if (/^test\s*:/m.test(content)) return "make test";
     } catch (err) {
-      console.warn(`[pi-tdd] Failed to read Makefile in ${workDir}:`, (err as Error).message);
+      console.warn(`[pi-tdd] Failed to read Makefile in ${dir}:`, (err as Error).message);
     }
   }
   return undefined;
 }
 
+interface TestCommandTarget {
+  command: string;
+  cwd: string;
+  label: string;
+}
+
+function detectTestCommands(workDir: string): TestCommandTarget[] {
+  const rootCommand = detectTestCommandInDir(workDir);
+  const rootTarget = rootCommand ? [{ command: rootCommand, cwd: workDir, label: "." }] : [];
+  const subdirTargets = fs
+    .readdirSync(workDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && !SKIP_DIRS.has(entry.name))
+    .map((entry) => {
+      const cwd = path.join(workDir, entry.name);
+      const command = detectTestCommandInDir(cwd);
+      return command ? { command, cwd, label: entry.name } : undefined;
+    })
+    .filter((target): target is TestCommandTarget => target !== undefined);
+
+  if (projectIsMonorepo) {
+    return subdirTargets.length > 0 ? subdirTargets : rootTarget;
+  }
+
+  return rootTarget.length > 0 ? rootTarget : subdirTargets;
+}
+
 function countFiles(dir: string, predicate: (f: string) => boolean): number {
-  const skip = new Set(["node_modules", ".git", "target", "vendor", "__pycache__", "dist"]);
   let count = 0;
   function walk(d: string) {
     for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
-      if (skip.has(entry.name)) continue;
+      if (SKIP_DIRS.has(entry.name)) continue;
       const full = path.join(d, entry.name);
       if (entry.isDirectory()) walk(full);
       else if (predicate(entry.name)) count++;
@@ -174,9 +201,6 @@ function countFiles(dir: string, predicate: (f: string) => boolean): number {
 }
 
 // -- File collection for judge ------------------------------------------------
-
-const SOURCE_RE = /\.(ts|js|tsx|jsx|py|rb|rs|go|c|ex|exs|java|kt|php)$/;
-const SKIP_DIRS = new Set(["node_modules", ".git", "target", "vendor", "__pycache__", "dist", ".next"]);
 
 function collectSourceFiles(dir: string): { testFiles: string[]; prodFiles: string[] } {
   const testFiles: string[] = [];
@@ -263,11 +287,11 @@ const piTddPlugin: EvalPlugin = {
   },
 
   verify(workDir) {
-    const command = detectTestCommand(workDir);
+    const commands = detectTestCommands(workDir);
     const testFileCount = countFiles(workDir, (f) => TEST_FILE_RE.test(f));
     const allSrc = countFiles(workDir, (f) => SOURCE_RE.test(f));
 
-    if (!command) {
+    if (commands.length === 0) {
       return {
         passed: false,
         output: "No test command detected",
@@ -275,26 +299,34 @@ const piTddPlugin: EvalPlugin = {
       };
     }
 
-    let passed = false;
-    let output = "";
-    try {
-      output = execSync(command, {
-        cwd: workDir,
-        timeout: 60_000,
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      passed = true;
-    } catch (err: unknown) {
-      if (err && typeof err === "object" && "stdout" in err) {
-        const e = err as { stdout?: string; stderr?: string };
-        output = (e.stdout ?? "") + (e.stderr ?? "");
-      } else {
-        output = String(err);
+    let passed = true;
+    const outputParts: string[] = [];
+    for (const target of commands) {
+      try {
+        const output = execSync(target.command, {
+          cwd: target.cwd,
+          timeout: 60_000,
+          encoding: "utf-8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        outputParts.push(`## ${target.label}\n${output.trim() || "(no output)"}`);
+      } catch (err: unknown) {
+        passed = false;
+        if (err && typeof err === "object" && "stdout" in err) {
+          const e = err as { stdout?: string; stderr?: string };
+          const output = ((e.stdout ?? "") + (e.stderr ?? "")).trim();
+          outputParts.push(`## ${target.label}\n${output || "(no output)"}`);
+        } else {
+          outputParts.push(`## ${target.label}\n${String(err)}`);
+        }
       }
     }
 
-    return { passed, output, metrics: { testFileCount, productionFileCount: allSrc - testFileCount } };
+    return {
+      passed,
+      output: outputParts.join("\n\n"),
+      metrics: { testFileCount, productionFileCount: allSrc - testFileCount },
+    };
   },
 
   scoreSession(session, verify) {

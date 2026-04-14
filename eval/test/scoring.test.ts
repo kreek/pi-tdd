@@ -1,6 +1,9 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { EvalSession, PluginEvent, VerifyResult } from "pi-do-eval";
 import { describe, expect, it } from "vitest";
-import { configure, scoreCorrectness, scoreInfrastructure, scoreTddCompliance } from "../plugins/pi-tdd.js";
+import plugin, { configure, scoreCorrectness, scoreInfrastructure, scoreTddCompliance } from "../plugins/pi-tdd.js";
 
 // -- Helpers ------------------------------------------------------------------
 
@@ -331,5 +334,44 @@ describe("configure", () => {
 
     // Reset
     configure({ taskCount: 3 });
+  });
+});
+
+// -- verify -------------------------------------------------------------------
+
+describe("verify", () => {
+  it("runs subdirectory test commands for monorepos", () => {
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-tdd-monorepo-"));
+
+    try {
+      fs.mkdirSync(path.join(workDir, "backend"));
+      fs.mkdirSync(path.join(workDir, "frontend"));
+      fs.writeFileSync(
+        path.join(workDir, "backend", "package.json"),
+        JSON.stringify({
+          name: "backend",
+          private: true,
+          scripts: { test: 'node -e "process.exit(0)"' },
+        }),
+      );
+      fs.writeFileSync(
+        path.join(workDir, "frontend", "package.json"),
+        JSON.stringify({
+          name: "frontend",
+          private: true,
+          scripts: { test: 'node -e "process.exit(0)"' },
+        }),
+      );
+
+      configure({ isMonorepo: true });
+      const result = plugin.verify?.(workDir);
+
+      expect(result?.passed).toBe(true);
+      expect(result?.output).toContain("## backend");
+      expect(result?.output).toContain("## frontend");
+    } finally {
+      configure({ isMonorepo: false, taskCount: 3 });
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
   });
 });
