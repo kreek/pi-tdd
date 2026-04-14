@@ -6,7 +6,7 @@
   "scripts": {
     "eval": "tsx eval.ts",
     "test": "vitest run",
-    "view": "ln -sf node_modules/pi-do-eval/src/viewer.html index.html && npx serve -S -l 3333 ."
+    "view": "tsx -e \"import('pi-do-eval').then(m => new m.EvalServer('.', 4242).start())\""
   },
   "dependencies": {
     "pi-do-eval": "file:../../pi-do-eval"
