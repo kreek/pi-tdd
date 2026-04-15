@@ -57,6 +57,16 @@ export interface EvalConfig {
   };
   /** Run each trial N times for statistical significance (default 1). */
   epochs?: number;
+  /** Resource and behavior budgets — violations appear in report findings. */
+  budgets?: {
+    maxInputTokens?: number;
+    maxOutputTokens?: number;
+    maxTotalTokens?: number;
+    maxDurationMs?: number;
+    maxToolCalls?: number;
+    maxBlockedCalls?: number;
+    maxFileWrites?: number;
+  };
   suites?: Record<string, SuiteEntry[]>;
   /** Compatibility alias for older configs. Prefer `suites`. */
   runSets?: Record<string, SuiteEntry[]>;

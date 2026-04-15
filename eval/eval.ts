@@ -272,6 +272,7 @@ async function runTrial(
     verify,
     plugin,
     judgeResult,
+    budgets: evalConfig.budgets,
   });
 
   const findings: string[] = [];
