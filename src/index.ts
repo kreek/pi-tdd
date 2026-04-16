@@ -45,6 +45,8 @@ const CONFIG_FILE_RE = new RegExp(
     "\\.md$",
   ].join("|"),
 );
+const IMPORT_ERROR_RE =
+  /Cannot find module|Module not found|ModuleNotFoundError|ImportError|unresolved import|cannot find package|no required module|Could not resolve/i;
 
 function isTestFile(filePath: string): boolean {
   return TEST_FILE_RE.test(filePath);
@@ -57,9 +59,6 @@ function isConfigFile(filePath: string): boolean {
 function isProductionFile(filePath: string): boolean {
   return !isTestFile(filePath) && !isConfigFile(filePath);
 }
-
-const IMPORT_ERROR_RE =
-  /Cannot find module|Module not found|ModuleNotFoundError|ImportError|unresolved import|cannot find package|no required module|Could not resolve/i;
 
 function isImportOnlyFailure(output: string, summary: TestSummary): boolean {
   const noTestsRan = summary.passed === 0 && summary.failed === 0 && summary.tests.length === 0;

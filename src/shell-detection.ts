@@ -4,13 +4,12 @@
  */
 
 const SHELL_WRITE_RE = /\bcat\s.*>|>\s*\S|<<\s*['"]?\w|\btee\b|\bsed\s+-i|\bprintf\s.*>|\bdd\b.*\bof=/;
+const REDIRECT_RE = /(?<!\d)>>?\s*(\S+)/g;
+const TEE_RE = /\btee\s+(?:-[a-z]\s+)*(\S+)/;
 
 export function detectsShellWritePattern(command: string): boolean {
   return SHELL_WRITE_RE.test(command);
 }
-
-const REDIRECT_RE = /(?<!\d)>>?\s*(\S+)/g;
-const TEE_RE = /\btee\s+(?:-[a-z]\s+)*(\S+)/;
 
 export function extractRedirectTargets(command: string): string[] {
   const targets: string[] = [];
