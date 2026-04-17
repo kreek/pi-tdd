@@ -160,6 +160,9 @@ const PHASE_GUIDANCE: Record<string, string> = {
     "don't re-prove it.",
     "Assert what your code does with the result,",
     "not that the library works.",
+    "Do not import or test internals of Pi, libraries, frameworks, CLIs, or APIs.",
+    "If validation is about packaging, publishing, installation, or runtime integration, prefer a smoke check using the public interface, not a unit test in npm test.",
+    "Do not add tests for builds, GitHub Actions, CI/CD pipelines, or other support systems unless that infrastructure itself is the thing being built or fixed.",
   ].join(" "),
   implementing: [
     "Write a MINIMAL and CORRECT production code solution",
